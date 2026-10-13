@@ -1,0 +1,62 @@
+@startuml
+left to right direction
+skinparam packageStyle rectangle
+skinparam ranksep 70
+skinparam nodesep 25
+
+actor "Khách hàng" as Customer
+actor "Nhân viên" as Staff
+actor "Cổng thanh toán" as PaymentGateway
+
+rectangle "BrewLite System" {
+' --- Menu ---
+usecase "Xem menu" as UC1
+usecase "Xem chi tiết sản phẩm" as UC2
+usecase "Tùy chọn Size/Topping" as UC3
+usecase "Thêm vào giỏ hàng" as UC4
+
+' --- Giỏ hàng & Tài khoản ---
+usecase "Quản lý giỏ hàng" as UC5
+usecase "Đăng ký tài khoản" as UC6
+usecase "Đăng nhập" as UC7
+
+' --- Đặt hàng & Thanh toán ---
+usecase "Đặt đơn hàng" as UC8
+usecase "Thanh toán đơn hàng" as UC9
+usecase "Áp dụng khuyến mãi" as UC10
+usecase "Thanh toán online" as UC13
+
+' --- Lịch sử & Quản lý ---
+usecase "Xem lịch sử & trạng thái đơn" as UC11
+usecase "Quản lý trạng thái đơn" as UC12
+usecase "Quản lý sản phẩm/menu" as UC14
+usecase "Quản lý khuyến mãi" as UC15
+}
+
+UC1 -[hidden]down- UC5
+UC5 -[hidden]down- UC6
+UC6 -[hidden]down- UC8
+UC11 -[hidden]down- UC12
+UC12 -[hidden]down- UC14
+UC14 -[hidden]down- UC15
+
+Customer --> UC1
+Customer --> UC5
+Customer --> UC6
+Customer --> UC7
+Customer --> UC8
+Customer --> UC11
+
+UC2 .left.> UC1 : <<extend>>
+UC3 .left.> UC2 : <<extend>>
+UC4 .left.> UC2 : <<extend>>
+UC8 .right.> UC9 : <<include>>
+UC10 .left.> UC9 : <<extend>>
+UC13 .left.> UC9 : <<extend>>
+UC13 --> PaymentGateway
+
+Staff --> UC7
+Staff -left-> UC12
+Staff -left-> UC14
+Staff -left-> UC15
+@enduml
