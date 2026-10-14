@@ -1,0 +1,40 @@
+@startuml
+skinparam handwritten false
+skinparam monochrome false
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam defaultFontName sans-serif
+
+skinparam rectangle {
+    BackgroundColor #FFFFFF
+    BorderColor #333333
+}
+
+skinparam usecase {
+    BackgroundColor #FFFFFF
+    BorderColor #333333
+    ArrowColor #333333
+}
+
+skinparam actor {
+    BackgroundColor #FFFFFF
+    BorderColor #333333
+}
+
+left to right direction
+
+actor "Khách hàng" as Customer
+actor "Cổng thanh toán" as PaymentGateway
+
+rectangle "Hệ thống BrewLite – Thanh toán đơn hàng" {
+  usecase "Thanh toán đơn hàng" as UC_Pay
+  usecase "Áp dụng mã khuyến mãi" as UC_Promo
+  usecase "Xử lý thanh toán online" as UC_OnlinePay
+}
+
+Customer --> UC_Pay
+UC_Promo .left.> UC_Pay : <<extend>>
+UC_Pay .right.> UC_OnlinePay : <<include>>
+UC_OnlinePay --> PaymentGateway
+
+@enduml

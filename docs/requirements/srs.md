@@ -1,26 +1,45 @@
-# Danh sách Yêu cầu Hệ thống (System Requirements)
+# Đặc tả Yêu cầu Phần mềm
 
 ## 1. Yêu cầu chức năng (Functional Requirements)
 
-| Mã ID | Tên yêu cầu | Mức ưu tiên | Tiêu chí chấp nhận |
-| :---- | :---------- | :---------- | :----------------- |
-| **FR-01** | Xem menu đồ uống | Must | API trả về danh sách sản phẩm; giao diện hiển thị danh sách đồ uống gồm hình ảnh, tên, giá. |
-| **FR-02** | Xem chi tiết & Tùy chọn | Must |Xem được chi tiết sản phẩm; chọn được size (S/M/L) và topping; giá tự động cập nhật theo tùy chọn. |
-| **FR-03** | Quản lý giỏ hàng | Must| Thêm, sửa số lượng, xóa món; tự động tính tổng tiền; hiển thị số lượng món; giỏ hàng được giữ lại sau khi đăng nhập. |
-| **FR-04** | Đăng ký / Đăng nhập | Must | Mật khẩu được băm (Bcrypt); đăng nhập trả về token JWT; có hai vai trò `customer` và `staff`; các route đặt đơn và quản trị được bảo vệ theo vai trò. |
-| **FR-05** | Đặt đơn hàng | Must | Người dùng đã đăng nhập tạo đơn từ giỏ hàng; đơn được lưu với trạng thái `PENDING` và tổng tiền khớp giỏ hàng; giỏ hàng được xóa sau khi tạo đơn thành công. |
-| **FR-06** | Thanh toán đơn hàng | Must | Hiển thị tổng tiền và nút "Thanh toán"; chọn phương thức Ví/Thẻ và chuyển sang cổng thanh toán; thành công chuyển trạng thái `PAID`, thất bại hoặc hết hạn chuyển `PAYMENT_FAILED`. |
-| **FR-07** | Áp dụng khuyến mãi | Could | Nhập mã hợp lệ thì tổng tiền giảm đúng; mã sai hoặc hết hạn hiển thị thông báo lỗi. |
-| **FR-08** | Lịch sử & Trạng thái đơn hàng | Should | Khách hàng chỉ xem được đơn của chính mình; hiển thị mã đơn và trạng thái hiện tại (`PENDING`, `PAID`, `PAYMENT_FAILED`, `PREPARING`, `READY`, `COMPLETED`, `CANCELLED`). |
-| **FR-09** | Quản lý trạng thái đơn (Nhân viên) | Should| Chỉ tài khoản `Nhân viên` mới xem được danh sách đơn và cập nhật trạng thái theo luồng hợp lệ (`PAID` → `PREPARING` → `READY` → `COMPLETED`)|
-| **FR-10** | Quản lý sản phẩm / menu| Could | Nhân viên có thể thêm, sửa, ẩn/xóa sản phẩm, size và topping; thay đổi hiển thị ngay trên menu của khách. |
-| **FR-11** | Quản lý khuyến mãi| Could| Nhân viên có thể tạo, sửa, vô hiệu hóa mã khuyến mãi kèm điều kiện và thời hạn. |
+| Mã ID | Nhóm chức năng | Tên yêu cầu | Mức ưu tiên | Tiêu chí chấp nhận có thể kiểm chứng |
+| :--- | :--- | :--- | :---: | :--- |
+| **FR-01** | Menu | Hiển thị danh mục đồ uống | **Must** | - **Given** cơ sở dữ liệu có sản phẩm hoạt động, **When** người dùng truy cập trang chủ / menu, **Then** API `GET /products` trả về mã `200 OK` kèm mảng JSON chứa các trường: `id`, `name`, `price`, `imageUrl`, `stock`.<br>- Giao diện hiển thị dạng lưới thân thiện với di động; có đầy đủ trạng thái `loading` (skeleton), `empty` (khi không có món) và thông báo `error` nếu API lỗi. |
+| **FR-02** | Chi tiết món | Xem chi tiết sản phẩm & Tùy chọn | **Must** | - **Given** người dùng chọn 1 sản phẩm, **When** gọi `GET /products/:id`, **Then** hiển thị đầy đủ hình ảnh phóng to, mô tả, danh sách Size (S, M, L) và danh sách Topping.<br>- Giao diện cho phép chọn Size và chọn nhiều Topping; tổng giá tiền của sản phẩm tự động cập nhật ngay trên giao diện theo từng tùy chọn được chọn. |
+| **FR-03** | Giỏ hàng | Quản lý giỏ hàng trên máy khách | **Must** | - Người dùng có thể thêm sản phẩm kèm tùy chọn (size, topping) vào giỏ hàng.<br>- Cho phép tăng/giảm số lượng món, xóa từng món hoặc xóa toàn bộ giỏ hàng.<br>- Hệ thống tự động tính lại tổng tiền (`subtotal`, `total`) chính xác theo công thức: $\sum (\text{giá cơ bản} + \text{giá size} + \sum \text{giá topping}) \times \text{số lượng}$.<br>- Badge trên icon giỏ hàng hiển thị đúng tổng số lượng món; giỏ hàng không bị mất khi làm mới trang (lưu local state). |
+| **FR-04** | Xác thực | Đăng ký & Đăng nhập người dùng | **Must** | - `POST /auth/register`: Đăng ký tài khoản với email hợp lệ và mật khẩu tối thiểu 6 ký tự; mật khẩu được băm bằng Bcrypt trước khi lưu vào CSDL; từ chối nếu email đã tồn tại (mã `409 Conflict`).<br>- `POST /auth/login`: Xác thực thông tin, nếu đúng trả về JWT token (chứa `userId`, `email`, `role`) với thời hạn hợp lệ; nếu sai trả về mã `401 Unauthorized`.<br>- Hỗ trợ phân quyền người dùng cơ bản (`customer` và `staff`); các route đặt đơn và thanh toán được bảo vệ bởi JWT Guard. |
+| **FR-05** | Đặt đơn | Tạo đơn hàng mới | **Must** | - **Given** người dùng đã đăng nhập và giỏ hàng có tối thiểu 1 món, **When** gửi yêu cầu `POST /orders`, **Then** backend thực hiện Transaction kiểm tra tồn kho (`stock`), nếu đủ sẽ trừ tồn kho và tạo bản ghi Order ở trạng thái `PENDING`.<br>- Nếu sản phẩm hết hàng hoặc số lượng đặt vượt quá tồn kho còn lại, hệ thống hủy bỏ transaction, không tạo đơn và trả về mã lỗi `400 Bad Request` kèm thông báo chi tiết món hết hàng.<br>- Giỏ hàng trên client được xóa sau khi tạo đơn thành công. |
+| **FR-06** | Thanh toán | Thanh toán không tiền mặt | **Must** | - **Given** đơn hàng đang ở trạng thái `PENDING`, **When** người dùng chọn phương thức (Ví điện tử / Thẻ ngân hàng) và gửi `POST /payments` kèm `Idempotency-Key` (UUID), **Then** hệ thống gọi dịch vụ Payment xử lý giao dịch.<br>- Nếu thanh toán thành công: Tạo bản ghi `Payment`, cập nhật trạng thái đơn hàng sang `PAID`, trả về mã đơn và thông tin thanh toán.<br>- Nếu thanh toán thất bại: Cập nhật trạng thái đơn sang `PAYMENT_FAILED`, giữ nguyên giỏ hàng/đơn hàng để người dùng có thể thực hiện lại thao tác thanh toán.<br>- Nếu gửi lặp lại cùng một `Idempotency-Key`, hệ thống trả về kết quả giao dịch trước đó, tuyệt đối không trừ tiền hoặc tạo thêm giao dịch mới. |
+| **FR-07** | Lịch sử đơn | Xem chi tiết & Lịch sử đơn hàng cá nhân | **Should** | - `GET /orders/me`: Trả về danh sách các đơn hàng thuộc quyền sở hữu của chính người dùng đăng nhập hiện tại, sắp xếp theo thời gian mới nhất; không cho phép xem đơn của người khác.<br>- Màn hình xác nhận đơn hiển thị mã đơn hàng dạng `#xxxx`, thời gian đặt, danh sách món kèm topping, tổng tiền thanh toán và trạng thái đơn hàng hiện tại (`PENDING`, `PAID`, `PAYMENT_FAILED`, `PREPARING`, `READY`, `COMPLETED`, `CANCELLED`). |
+| **FR-08** | Trạng thái đơn | Quản lý trạng thái xử lý đơn hàng | **Should** | - Hệ thống áp dụng Order State Machine nghiêm ngặt: `PENDING` $\rightarrow$ `PAID` $\rightarrow$ `PREPARING` $\rightarrow$ `READY` $\rightarrow$ `COMPLETED`.<br>- Chặn toàn bộ các bước chuyển trạng thái không hợp lệ (ví dụ: chuyển trực tiếp từ `PENDING` sang `COMPLETED`) và ném ngoại lệ `400 Bad Request`.<br>- Hỗ trợ chuyển sang trạng thái ngoại lệ: `PAYMENT_FAILED` (khi thanh toán lỗi, có thể thanh toán lại) hoặc `CANCELLED` (khi hủy đơn hợp lệ). |
+| **FR-09** | Khuyến mãi | Áp dụng mã giảm giá cơ bản | **Could** | - Người dùng có thể nhập mã voucher tại màn hình thanh toán; hệ thống kiểm tra tính hợp lệ và thời hạn của mã.<br>- Nếu hợp lệ: Giảm trừ giá trị đơn hàng chính xác theo phần trăm hoặc số tiền cố định; nếu không hợp lệ: Hiển thị thông báo lỗi rõ ràng. |
+| **FR-10** | Tích điểm | Tích lũy điểm thưởng thành viên | **Could** | - Sau khi đơn hàng chuyển sang trạng thái `PAID`, hệ thống tự động cộng điểm thưởng cho tài khoản khách hàng theo tỷ lệ quy định (10.000 VNĐ = 1 điểm loyalty (1 điểm loyalty= 500VNĐ)). |
+| **FR-11** | Quản lý món | Cập nhật danh mục & trạng thái món | **Could** | - Cho phép tài khoản có quyền quản trị cập nhật thông tin sản phẩm hoặc chuyển trạng thái hết hàng; menu phía khách hàng cập nhật tương ứng khi tải lại. |
+| **FR-12** | Vận chuyển | Giao hàng tận nơi (Delivery) | **Won't** | - Không triển khai tính năng giao hàng tận nơi và theo dõi tài xế trong phiên bản này. BrewLite chỉ phục vụ lấy tại quầy (Bán mang đi). |
+| **FR-13** | Tiền mặt | Thanh toán tiền mặt tại quầy | **Won't** | - Không triển khai thanh toán tiền mặt truyền thống trong luồng đặt trực tuyến; đảm bảo tôn chỉ 100% không tiền mặt. |
+
+---
 
 ## 2. Yêu cầu phi chức năng (Non-Functional Requirements)
 
-| Mã ID | Tên yêu cầu | Mức ưu tiên | Tiêu chí chấp nhận |
-| :---- | :---------- | :---------- | :----------------- |
-| **NFR-01** | Hiệu năng | Must | request GET /products có thời gian phản hồi dưới 500ms với bộ dữ liệu mẫu 100 sản phẩm. |
-| **NFR-02** | Bảo mật | Must | Request không có token hoặc token hết hạn trả về 401; truy cập sai vai trò trả về 403; toàn bộ dữ liệu đầu vào được validate bằng class-validator. |
-| **NFR-03** | Khả năng triển khai | Must | Triển khai tự động (CI/CD) qua Docker; môi trường production truy cập được qua HTTPS. |
+| Mã ID | Nhóm yêu cầu | Tên yêu cầu phi chức năng | Mức ưu tiên | Tiêu chí chấp nhận và chỉ số đo lường (Measurable Acceptance Criteria) |
+| :--- | :--- | :--- | :---: | :--- |
+| **NFR-01** | Hiệu năng | Tốc độ phản hồi của hệ thống (Performance) | **Must** | - Endpoint `GET /products` có thời gian phản hồi (Response Time) $< 500\text{ ms}$ trong điều kiện dữ liệu mẫu tối thiểu 100 sản phẩm.<br>- Thao tác tạo đơn hàng và thanh toán xử lý hoàn tất trong vòng $< 1000\text{ ms}$. |
+| **NFR-02** | Bảo mật | An toàn thông tin & Phân quyền (Security) | **Must** | - Toàn bộ mật khẩu người dùng phải được băm an toàn bằng thuật toán Bcrypt (Salt rounds $\ge 10$), không bao giờ lưu trữ hoặc log plaintext.<br>- Các API nghiệp vụ yêu cầu đăng nhập phải trả về mã lỗi `401 Unauthorized` nếu thiếu JWT Token hoặc token hết hạn; trả về `403 Forbidden` nếu không đúng quyền (`role`).<br>- Toàn bộ dữ liệu đầu vào (Request DTO) bắt buộc được thẩm định tự động thông qua `class-validator` và `ValidationPipe` của NestJS để phòng chống SQL Injection và XSS. |
+| **NFR-03** | Tính khả dụng | Trải nghiệm người dùng di động (Usability & PWA) | **Must** | - Giao diện được thiết kế theo triết lý **Mobile-First**, hiển thị tương thích hoàn hảo và sắc nét trên các thiết bị di động có chiều rộng màn hình từ $360\text{px}$ đến $768\text{px}$ và các trình duyệt phổ biến (Chrome, Safari).<br>- Hệ thống cung cấp phản hồi trực quan (Visual Feedback) tức thời cho mọi thao tác người dùng: Loading spinner/skeleton khi đang gọi API, Toast thông báo khi thêm giỏ hàng thành công/lỗi, và Empty state khi giỏ hàng hoặc danh sách đơn trống.<br>- Hỗ trợ cấu hình Progressive Web App (PWA) cơ bản (Web App Manifest, theme color, icon). |
+| **NFR-04** | Khả năng triển khai | Tự động hóa CI/CD & Đóng gói (Deployability) | **Must** | - Cung cấp tệp `docker-compose.yml` có thể khởi chạy đồng thời cả 3 dịch vụ: Frontend (Next.js), Backend (NestJS) và Database (PostgreSQL) chỉ với một câu lệnh duy nhất.<br>- Thiết lập GitHub Actions Pipeline tự động kiểm tra chất lượng trên mỗi Pull Request: `Install` $\rightarrow$ `Lint` $\rightarrow$ `Unit Test` $\rightarrow$ `Build`. Pull Request chỉ được phép merge khi toàn bộ các bước đều thành công.<br>- Môi trường Production có thể truy cập công khai qua giao thức bảo mật `HTTPS`. |
+| **NFR-05** | Tính toàn vẹn | Nhất quán dữ liệu đồng thời & Idempotency | **Must** | - Hệ thống áp dụng **Transaction** khi tạo đơn và trừ kho; đảm bảo nguyên tắc ACID: không bao giờ xảy ra tình trạng trừ kho mà không có đơn hàng hoặc ngược lại.<br>- Sử dụng cơ chế khóa dữ liệu (Locking) để đảm bảo khi 5 khách hàng cùng đặt mua sản phẩm cuối cùng thì chỉ duy nhất 1 khách đặt thành công, 4 khách còn lại nhận thông báo hết hàng chính xác.<br>- Endpoint thanh toán bắt buộc áp dụng cơ chế **Idempotency** để bảo vệ khách hàng khỏi việc bị trừ tiền 2 lần do mạng chậm hoặc thao tác nhấn nhiều lần. |
 
+---
+
+## 3. Sơ đồ Use Case Tổng quát Hệ thống (System Use Case Diagram)
+
+Sơ đồ dưới đây thể hiện toàn bộ các chức năng chính của hệ thống BrewLite, phân định ranh giới giữa các Actor (**Khách hàng**, **Nhân viên / Quản lý**, và **Cổng thanh toán**):
+
+![Sơ đồ Use Case Tổng quát Hệ thống](./use-case-overview.svg)
+
+### Bảng tóm tắt các gói Use Case chính:
+1. **Phân hệ Menu & Chọn món**: `UC-01 Xem menu`, `UC-02 Xem chi tiết sản phẩm`, `UC-03 Tùy chọn Size/Topping`.
+2. **Phân hệ Giỏ hàng & Khách hàng**: `UC-04 Quản lý giỏ hàng`, `UC-05 Đăng ký tài khoản`, `UC-06 Đăng nhập`.
+3. **Phân hệ Đặt hàng & Thanh toán (Luồng cốt lõi)**: `UC-07 Đặt đơn hàng`, `UC-08 Thanh toán đơn hàng`, `UC-09 Áp dụng khuyến mãi`, liên kết với Actor bên ngoài `Cổng thanh toán (Payment Gateway)`.
+4. **Phân hệ Theo dõi & Quản lý**: `UC-10 Xem lịch sử & trạng thái đơn` (Khách hàng), `UC-11 Quản lý trạng thái đơn hàng` (Nhân viên), `UC-12 Quản lý danh mục món` (Quản lý cửa hàng).
