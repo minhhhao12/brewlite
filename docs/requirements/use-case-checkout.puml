@@ -1,40 +1,36 @@
 @startuml
-skinparam handwritten false
-skinparam monochrome false
-skinparam packageStyle rectangle
-skinparam shadowing false
-skinparam defaultFontName sans-serif
-
-skinparam rectangle {
-    BackgroundColor #FFFFFF
-    BorderColor #333333
-}
-
-skinparam usecase {
-    BackgroundColor #FFFFFF
-    BorderColor #333333
-    ArrowColor #333333
-}
-
-skinparam actor {
-    BackgroundColor #FFFFFF
-    BorderColor #333333
-}
-
 left to right direction
+
 
 actor "Khách hàng" as Customer
 actor "Cổng thanh toán" as PaymentGateway
 
-rectangle "Hệ thống BrewLite – Thanh toán đơn hàng" {
-  usecase "Thanh toán đơn hàng" as UC_Pay
-  usecase "Áp dụng mã khuyến mãi" as UC_Promo
-  usecase "Xử lý thanh toán online" as UC_OnlinePay
+rectangle "Hệ thống BrewLite - Thanh toán đơn hàng" {
+
+    usecase "Thanh toán đơn hàng" as UC9
+
+    usecase "Áp dụng mã\nkhuyến mãi" as UCPromo
+
+    usecase "Xử lý thanh toán\nonline" as UCOnline
+
+    usecase "Kiểm tra đơn hàng\nvà quyền sở hữu" as UCValidate
+
+    usecase "Kiểm tra khóa\nIdempotency" as UCIdempotency
+
+    usecase "Ghi nhận thanh toán\nvà cập nhật trạng thái" as UCRecord
+
+    usecase "Thông báo kết quả\nthanh toán" as UCResult
 }
 
-Customer --> UC_Pay
-UC_Promo .left.> UC_Pay : <<extend>>
-UC_Pay .right.> UC_OnlinePay : <<include>>
-UC_OnlinePay --> PaymentGateway
+Customer --> UC9
 
+UCPromo ..> UC9 : <<extend>>
+
+UC9 ..> UCValidate : <<include>>
+UC9 ..> UCIdempotency : <<include>>
+UC9 ..> UCOnline : <<include>>
+UC9 ..> UCRecord : <<include>>
+UC9 ..> UCResult : <<include>>
+
+UCOnline --> PaymentGateway
 @enduml

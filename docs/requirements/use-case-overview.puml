@@ -46,11 +46,10 @@ Customer --> UC6
 Customer --> UC7
 Customer --> UC8
 Customer --> UC11
-
+Customer --> UC9
 UC2 .left.> UC1 : <<extend>>
 UC3 .left.> UC2 : <<extend>>
 UC4 .left.> UC2 : <<extend>>
-UC8 .right.> UC9 : <<include>>
 UC10 .left.> UC9 : <<extend>>
 UC13 .left.> UC9 : <<extend>>
 UC13 --> PaymentGateway
