@@ -1,61 +1,63 @@
 @startuml
+' Canonical IDs khớp srs.md: UC-01..UC-12
+' Các node phụ hậu tố "a" (UC-04a, UC-08a, UC-12a) là sub-step, không tách khỏi FR gốc.
 left to right direction
 skinparam packageStyle rectangle
 skinparam ranksep 70
 skinparam nodesep 25
 
 actor "Khách hàng" as Customer
-actor "Nhân viên" as Staff
+actor "Nhân viên / Quản lý" as Staff
 actor "Cổng thanh toán" as PaymentGateway
 
 rectangle "BrewLite System" {
 ' --- Menu ---
-usecase "Xem menu" as UC1
-usecase "Xem chi tiết sản phẩm" as UC2
-usecase "Tùy chọn Size/Topping" as UC3
-usecase "Thêm vào giỏ hàng" as UC4
+usecase "Xem menu" as UC_01
+usecase "Xem chi tiết sản phẩm" as UC_02
+usecase "Tùy chọn Size/Topping" as UC_03
+usecase "Thêm vào giỏ hàng" as UC_04a
 
 ' --- Giỏ hàng & Tài khoản ---
-usecase "Quản lý giỏ hàng" as UC5
-usecase "Đăng ký tài khoản" as UC6
-usecase "Đăng nhập" as UC7
+usecase "Quản lý giỏ hàng" as UC_04
+usecase "Đăng ký tài khoản" as UC_05
+usecase "Đăng nhập" as UC_06
 
 ' --- Đặt hàng & Thanh toán ---
-usecase "Đặt đơn hàng" as UC8
-usecase "Thanh toán đơn hàng" as UC9
-usecase "Áp dụng khuyến mãi" as UC10
-usecase "Thanh toán online" as UC13
+usecase "Đặt đơn hàng" as UC_07
+usecase "Thanh toán đơn hàng" as UC_08
+usecase "Áp dụng khuyến mãi" as UC_09
+usecase "Thanh toán online" as UC_08a
 
 ' --- Lịch sử & Quản lý ---
-usecase "Xem lịch sử & trạng thái đơn" as UC11
-usecase "Quản lý trạng thái đơn" as UC12
-usecase "Quản lý sản phẩm/menu" as UC14
-usecase "Quản lý khuyến mãi" as UC15
+usecase "Xem lịch sử & trạng thái đơn" as UC_10
+usecase "Quản lý trạng thái đơn" as UC_11
+usecase "Quản lý sản phẩm/menu" as UC_12
+usecase "Quản lý khuyến mãi" as UC_12a
 }
 
-UC1 -[hidden]down- UC5
-UC5 -[hidden]down- UC6
-UC6 -[hidden]down- UC8
-UC11 -[hidden]down- UC12
-UC12 -[hidden]down- UC14
-UC14 -[hidden]down- UC15
+UC_01 -[hidden]down- UC_04
+UC_04 -[hidden]down- UC_05
+UC_05 -[hidden]down- UC_07
+UC_10 -[hidden]down- UC_11
+UC_11 -[hidden]down- UC_12
+UC_12 -[hidden]down- UC_12a
 
-Customer --> UC1
-Customer --> UC5
-Customer --> UC6
-Customer --> UC7
-Customer --> UC8
-Customer --> UC11
-Customer --> UC9
-UC2 .left.> UC1 : <<extend>>
-UC3 .left.> UC2 : <<extend>>
-UC4 .left.> UC2 : <<extend>>
-UC10 .left.> UC9 : <<extend>>
-UC13 .left.> UC9 : <<extend>>
-UC13 --> PaymentGateway
+Customer --> UC_01
+Customer --> UC_04
+Customer --> UC_05
+Customer --> UC_06
+Customer --> UC_07
+Customer --> UC_10
+Customer --> UC_08
+UC_02 .left.> UC_01 : <<extend>>
+UC_03 .left.> UC_02 : <<extend>>
+UC_04a .left.> UC_02 : <<extend>>
+UC_09 .left.> UC_08 : <<extend>>
+UC_08a .left.> UC_08 : <<include>>
+UC_08a --> PaymentGateway
 
-Staff --> UC7
-Staff -left-> UC12
-Staff -left-> UC14
-Staff -left-> UC15
+Staff --> UC_06
+Staff -left-> UC_11
+Staff -left-> UC_12
+Staff -left-> UC_12a
 @enduml

@@ -1,6 +1,6 @@
-# Bối cảnh, Stakeholder và Phạm vi Hệ thống (Context & Scope)
+# Bối cảnh, Stakeholder và Phạm vi Hệ thống
 
-## 1. Bối cảnh nghiệp vụ (Business Context)
+## 1. Bối cảnh nghiệp vụ
 Trong mô hình vận hành quán cà phê và đồ uống truyền thống, khách hàng thường xuyên phải đối mặt với tình trạng xếp hàng kéo dài vào các khung giờ cao điểm, thời gian chờ gọi món và thanh toán bằng tiền mặt chậm chạp, dễ xảy ra nhầm lẫn đơn hoặc sai sót trong khâu thu ngân.
 
 **BrewLite** được định vị là một giải pháp ứng dụng web hiện đại (Mobile-First / PWA), cho phép khách hàng tự phục vụ: chủ động duyệt menu số hóa, tùy biến sản phẩm (size, topping) theo sở thích, đặt đơn và thanh toán 100% không dùng tiền mặt trực tiếp trên điện thoại cá nhân. Hệ thống giúp rút ngắn tối đa thời gian chờ đợi tại quầy, tối ưu hóa năng suất phục vụ của nhân viên, đồng thời cung cấp khả năng theo dõi trạng thái đơn hàng minh bạch theo thời gian thực.
@@ -22,8 +22,7 @@ Trong mô hình vận hành quán cà phê và đồ uống truyền thống, kh
 
 ## 3. Phạm vi Hệ thống (System Scope)
 
-### 3.1. Phạm vi trong MVP (In-Scope MVP - Triển khai trong Sprint 1 & 2)
-Toàn bộ chuỗi nghiệp vụ tối thiểu từ chọn sản phẩm đến nhận hàng của BrewLite:
+### 3.1. Phạm vi trong MVP (In-Scope MVP)
 * **Xem menu & Tìm kiếm**: Hiển thị danh mục sản phẩm đồ uống kèm hình ảnh, mô tả, đơn giá, trạng thái còn/hết hàng.
 * **Chi tiết món & Tùy chọn**: Cho phép khách hàng chọn dung tích (Size S/M/L) và các loại Topping ăn kèm; tự động cập nhật tổng giá tức thời.
 * **Quản lý giỏ hàng**: Thêm mới, thay đổi số lượng, xóa từng món hoặc toàn bộ giỏ; tự động tính tổng tiền giỏ hàng; duy trì trạng thái giỏ hàng.
@@ -32,32 +31,30 @@ Toàn bộ chuỗi nghiệp vụ tối thiểu từ chọn sản phẩm đến n
 * **Thanh toán trực tuyến mô phỏng**: Hỗ trợ thanh toán qua Ví điện tử hoặc Thẻ ngân hàng với cơ chế `Idempotency-Key` ngăn chặn thanh toán lặp; tự động cập nhật trạng thái đơn thành `PAID` hoặc `PAYMENT_FAILED`.
 * **Theo dõi trạng thái & Lịch sử đơn hàng**: Màn hình xác nhận sau khi đặt; xem chi tiết mã đơn hàng và trạng thái xử lý; xem lịch sử các đơn hàng cá nhân đã đặt.
 
-### 3.2. Phạm vi mở rộng (Extended Scope - Dự kiến sau MVP)
+### 3.2. Phạm vi mở rộng (Extended Scope)
 * **Giao diện pha chế (Kitchen Display System - KDS)**: Màn hình chuyên biệt dành riêng cho Barista tiếp nhận đơn hàng đã thanh toán và cập nhật tuần tự các trạng thái: `PAID` $\rightarrow$ `PREPARING` $\rightarrow$ `READY` $\rightarrow$ `COMPLETED`.
-* **Quản trị danh mục & Tồn kho (Back-office Management)**: Trang quản lý dành cho Quản lý cửa hàng (Admin) để cập nhật thông tin sản phẩm, quản lý số lượng nguyên liệu tồn kho theo thời gian thực.
-* **Tích hợp cổng thanh toán thực tế**: Kết nối API trực tiếp với các cổng thanh toán thật (MoMo, VNPay, ZaloPay) thông qua Webhook ký số HMAC.
+* **Quản trị danh mục & Tồn kho**: Trang quản lý dành cho Quản lý cửa hàng (Admin) để cập nhật thông tin sản phẩm, quản lý số lượng nguyên liệu tồn kho theo thời gian thực.
 
 ### 3.3. Phạm vi không thực hiện (Out-of-Scope)
-* **Dịch vụ giao hàng tận nơi (Delivery)**: BrewLite chỉ phục vụ mô hình khách hàng tự đến quầy nhận đồ uống (Pick-up / Take-away). Không xây dựng hệ thống tính phí vận chuyển, định vị GPS hay ứng dụng cho tài xế giao hàng.
-* **Thanh toán tiền mặt tại quầy (Cash on Delivery / Cash at Counter)**: Là quán cà phê hiện đại 100% không dùng tiền mặt, hệ thống kiên quyết không hỗ trợ luồng thanh toán tiền mặt truyền thống trong quy trình đặt online.
-* **Quản lý nhân sự, chấm công và tính lương**: Không bao gồm các nghiệp vụ quản trị nguồn nhân lực nội bộ của quán cà phê.
+* BrewLite chỉ phục vụ mô hình khách hàng tự đến quầy nhận đồ uống (Pick-up / Take-away). Không xây dựng hệ thống tính phí vận chuyển, định vị GPS hay ứng dụng cho tài xế giao hàng.
+* Là quán cà phê hiện đại 100% không dùng tiền mặt, hệ thống kiên quyết không hỗ trợ luồng thanh toán tiền mặt truyền thống trong quy trình đặt online.
+* Không bao gồm các nghiệp vụ quản trị nguồn nhân lực nội bộ của quán cà phê.
 
 ---
 
 ## 4. Giả định và Ràng buộc
 
-### 4.1. Giả định (Assumptions)
-* **Hạ tầng người dùng**: Khách hàng sử dụng điện thoại thông minh có kết nối Internet (4G/5G/Wi-Fi) và trình duyệt web tiêu chuẩn (Chrome, Safari) tương thích tốt với PWA và Mobile-First.
-* **Hạ tầng thanh toán**: Dịch vụ thanh toán mô phỏng (Mock Payment Gateway) phản hồi kết quả giao dịch tức thời hoặc có độ trễ mô phỏng thực tế đáng tin cậy.
-* **Dữ liệu ban đầu**: Hệ thống luôn có sẵn dữ liệu mẫu về sản phẩm, danh mục, tùy chọn size và topping để phục vụ kiểm thử và demo.
+### 4.1. Giả định
+* Khách hàng sử dụng điện thoại thông minh có kết nối Internet (4G/5G/Wi-Fi) và trình duyệt web tiêu chuẩn (Chrome, Safari) tương thích tốt với PWA và Mobile-First.
+* Dịch vụ thanh toán (Payment Gateway) phản hồi kết quả giao dịch tức thời hoặc có độ trễ mô phỏng thực tế đáng tin cậy.
+* Hệ thống luôn có sẵn dữ liệu mẫu về sản phẩm, danh mục, tùy chọn size và topping để phục vụ kiểm thử và demo.
 
 ### 4.2. Ràng buộc kỹ thuật & quy trình
-* **Công nghệ bắt buộc (Tech Stack)**:
+* **Tech Stack**:
   * Frontend: Next.js (React, TypeScript), kiến trúc hướng Mobile-First / PWA, quản lý state bằng Zustand hoặc React Query.
   * Backend: NestJS, thiết kế theo Module/Domain-driven architecture, sử dụng class-validator và JWT Guard.
   * Cơ sở dữ liệu: PostgreSQL, quản lý schema và migration thông qua Prisma.
   * DevOps: Docker & Docker Compose để container hóa môi trường Local, CI và Production.
-* **Ràng buộc thời gian**: Dự án phải được triển khai nghiêm ngặt theo mô hình Agile Scrum gồm 2 Sprint (Sprint 1: Menu & Nền tảng; Sprint 2: Đặt đơn, Thanh toán & Delivery).
 * **Ràng buộc bảo mật**: Không lưu trữ mật khẩu dưới dạng plaintext; toàn bộ API nhạy cảm phải được bảo vệ qua JWT; không commit bí mật (Secrets, Passwords, API Keys) vào kho mã nguồn Git.
 
 ---

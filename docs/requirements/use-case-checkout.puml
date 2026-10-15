@@ -1,4 +1,5 @@
 @startuml
+' Canonical ID khớp srs.md + use-case-checkout.md: UC-08 thanh toán, UC-09 khuyến mãi
 left to right direction
 
 
@@ -7,30 +8,30 @@ actor "Cổng thanh toán" as PaymentGateway
 
 rectangle "Hệ thống BrewLite - Thanh toán đơn hàng" {
 
-    usecase "Thanh toán đơn hàng" as UC9
+    usecase "Thanh toán đơn hàng" as UC_08
 
-    usecase "Áp dụng mã\nkhuyến mãi" as UCPromo
+    usecase "Áp dụng mã\nkhuyến mãi" as UC_09
 
-    usecase "Xử lý thanh toán\nonline" as UCOnline
+    usecase "Xử lý thanh toán\nonline" as UC_08a
 
-    usecase "Kiểm tra đơn hàng\nvà quyền sở hữu" as UCValidate
+    usecase "Kiểm tra đơn hàng\nvà quyền sở hữu" as UC_08b
 
-    usecase "Kiểm tra khóa\nIdempotency" as UCIdempotency
+    usecase "Kiểm tra khóa\nIdempotency" as UC_08c
 
-    usecase "Ghi nhận thanh toán\nvà cập nhật trạng thái" as UCRecord
+    usecase "Ghi nhận thanh toán\nvà cập nhật trạng thái" as UC_08d
 
-    usecase "Thông báo kết quả\nthanh toán" as UCResult
+    usecase "Thông báo kết quả\nthanh toán" as UC_08e
 }
 
-Customer --> UC9
+Customer --> UC_08
 
-UCPromo ..> UC9 : <<extend>>
+UC_09 ..> UC_08 : <<extend>>
 
-UC9 ..> UCValidate : <<include>>
-UC9 ..> UCIdempotency : <<include>>
-UC9 ..> UCOnline : <<include>>
-UC9 ..> UCRecord : <<include>>
-UC9 ..> UCResult : <<include>>
+UC_08 ..> UC_08b : <<include>>
+UC_08 ..> UC_08c : <<include>>
+UC_08 ..> UC_08a : <<include>>
+UC_08 ..> UC_08d : <<include>>
+UC_08 ..> UC_08e : <<include>>
 
-UCOnline --> PaymentGateway
+UC_08a --> PaymentGateway
 @enduml

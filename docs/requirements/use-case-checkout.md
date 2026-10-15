@@ -2,7 +2,7 @@
 
 ## 1. Thông tin Use Case
 * **Tên Use Case**: Thanh toán đơn hàng
-* **Mã định danh**: `UC9` 
+* **Mã định danh**: `UC-08` 
 * **Mức độ ưu tiên**: **Must Have** (Chức năng cốt lõi của MVP)
 * **Actor chính**: Khách hàng (Customer)
 * **Actor hỗ trợ**: Cổng thanh toán (Payment Gateway Service)
@@ -39,11 +39,11 @@ Khách hàng nhấn nút **"Xác nhận thanh toán"** trên màn hình Thanh to
 ### 6.1. Trường hợp thành công
 * Bản ghi thanh toán mới (`Payment`) được khởi tạo trong CSDL lưu trữ: `id`, `orderId`, `amount`, `method`, `idempotencyKey` và thời gian thanh toán.
 * Trạng thái đơn hàng trong bảng `Order` được cập nhật từ `PENDING` $\rightarrow$ **`PAID`**.
-* Giỏ hàng của khách hàng trên client được làm sạch.
+* Giỏ hàng đã được làm sạch từ bước tạo đơn (`POST /orders` -> `PENDING`); bước này không dùng giỏ nữa.
 * Khách hàng nhận được thông báo giao dịch thành công kèm mã đơn hàng (ví dụ `#1042`), trạng thái `PAID` và lời mời nhận nước tại quầy.
 
 ### 6.2. Trường hợp thất bại
-* Trạng thái đơn hàng chuyển sang **`PAYMENT_FAILED`** (hoặc duy trì `PENDING` kèm log lỗi thanh toán).
+* Trạng thái đơn hàng chuyển sang **`PAYMENT_FAILED`**.
 * Không có giao dịch trừ tiền nào được hoàn tất.
 * Hệ thống thông báo rõ nguyên nhân thất bại và cung cấp nút **"Thử thanh toán lại"** cho đúng đơn hàng này mà không tạo thêm bản ghi đơn hàng trùng lặp.
 
@@ -61,16 +61,16 @@ Khách hàng nhấn nút **"Xác nhận thanh toán"** trên màn hình Thanh to
 | **6** | | NestJS API kích hoạt Use Case con **"Xử lý thanh toán online"**: Gọi API dịch vụ Cổng thanh toán mô phỏng (Mock Payment Gateway) để trừ tiền. |
 | **7** | | Cổng thanh toán mô phỏng xử lý giao dịch an toàn và phản hồi trạng thái thành công (`SUCCESS`, Transaction ID). |
 | **8** | | NestJS API mở Transaction:<br>1. Tạo bản ghi `Payment` với thông tin giao dịch và `Idempotency-Key`.<br>2. Cập nhật trạng thái đơn hàng từ `PENDING` $\rightarrow$ **`PAID`**.<br>3. Commit transaction và trả về phản hồi HTTP `200 OK` kèm thông tin đơn đã thanh toán. |
-| **9** | Khách hàng xem màn hình xác nhận thanh toán thành công và nhận mã lấy nước. | Giao diện Next.js xóa sạch giỏ hàng, chuyển hướng khách hàng sang màn hình Xác nhận đơn (`/orders/:id/confirmation`), hiển thị mã đơn hàng, trạng thái `PAID` và thông điệp chuẩn bị đồ uống. |
+| **9** | Khách hàng xem màn hình xác nhận thanh toán thành công và nhận mã lấy nước. | Giao diện Next.js chuyển hướng khách hàng sang màn hình Xác nhận đơn (`/orders/:id/confirmation`), hiển thị mã đơn hàng, trạng thái `PAID` và thông điệp chuẩn bị đồ uống (giỏ hàng đã xóa từ lúc tạo đơn `PENDING`). |
 
 ---
 
 ## 8. Luồng thay thế (Alternative Flows)
 
 ### 8.1. Luồng AF-1: Áp dụng mã khuyến mãi (Extend UC - Áp dụng mã khuyến mãi)
-* **Tại bước 1**: Trước khi thanh toán, khách hàng nhập mã giảm giá vào ô khuyến mãi và nhấn "Áp dụng".
-* **Hệ thống**: Kiểm tra mã hợp lệ, trừ bớt số tiền giảm giá vào tổng tiền đơn hàng.
-* Khách hàng tiếp tục thanh toán từ bước 2 với số tiền sau khi đã giảm giá.
+* **Trước bước 1 (lúc tạo đơn):** khách hàng nhập mã giảm giá ở màn hình giỏ hàng; mã được gửi kèm trong `POST /orders` theo FR-09.
+* **Hệ thống**: Kiểm tra mã hợp lệ, tính discount vào `order.total` trước khi tạo `PENDING`.
+* Khách hàng thanh toán từ bước 1 với số tiền sau giảm giá; không sửa total khi đơn đã `PENDING`.
 
 ### 8.2. Luồng AF-2: Đổi phương thức thanh toán
 * **Tại bước 2**: Khách hàng chuyển đổi từ *Ví điện tử* sang *Thẻ ngân hàng*. Hệ thống hiển thị form nhập thông tin thẻ mô phỏng tương ứng mà không làm thay đổi thông tin số tiền của đơn hàng.
@@ -84,7 +84,7 @@ Khách hàng nhấn nút **"Xác nhận thanh toán"** trên màn hình Thanh to
 * **Hệ thống**: Trả về mã lỗi HTTP `401 Unauthorized`. Client chuyển hướng người dùng đến trang Đăng nhập và lưu lại `orderId` hiện tại để tự động quay lại thanh toán ngay sau khi đăng nhập thành công.
 
 ### 9.2. Luồng EF-2: Đơn hàng không ở trạng thái hợp lệ để thanh toán
-* **Tại bước 5**: Đơn hàng đã ở trạng thái `PAID` (đã thanh toán rồi) hoặc `CANCELLED` (đã bị hủy do hết hạn).
+* **Tại bước 5**: Đơn hàng đã ở trạng thái `PAID` (đã thanh toán rồi) hoặc `CANCELLED` (đã bị hủy). Riêng `PAYMENT_FAILED` được phép thử lại theo FR-08 (`PAYMENT_FAILED -> PENDING -> PAID`).
 * **Hệ thống**: NestJS chặn lại với mã lỗi `400 Bad Request` kèm thông báo: *"Đơn hàng này không còn ở trạng thái chờ thanh toán"*. Không gọi sang cổng thanh toán.
 
 ### 9.3. Luồng EF-3: Cổng thanh toán báo lỗi hoặc giao dịch thất bại
@@ -104,5 +104,9 @@ Khách hàng nhấn nút **"Xác nhận thanh toán"** trên màn hình Thanh to
   2. Tuyệt đối không gửi lệnh trừ tiền sang Cổng thanh toán lần thứ 2.
 
 ---
+
+## 10. Truy vết yêu cầu (Task 1.3)
+
+`UC-08` bao phủ `FR-05` (đơn `PENDING` đầu vào), `FR-06` (luồng chính), `FR-09` (extend khuyến mãi), `NFR-02` (JWT + validate), `NFR-05` (transaction + idempotency). Sơ đồ nguồn `use-case-checkout.puml` dùng ID chuẩn `UC-08 / UC-09 / UC-08a..e` khớp `srs.md`.
 
 
