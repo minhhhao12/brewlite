@@ -52,7 +52,7 @@ Customer --> UC_08
 UC_02 .left.> UC_01 : <<extend>>
 UC_03 .left.> UC_02 : <<extend>>
 UC_04a .left.> UC_02 : <<extend>>
-UC_09 .left.> UC_08 : <<extend>>
+UC_09 .left.> UC_07 : <<extend>>
 UC_08a .left.> UC_08 : <<include>>
 UC_08a --> PaymentGateway
 

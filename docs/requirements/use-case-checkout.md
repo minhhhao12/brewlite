@@ -84,7 +84,7 @@ Khách hàng nhấn nút **"Xác nhận thanh toán"** trên màn hình Thanh to
 * **Hệ thống**: Trả về mã lỗi HTTP `401 Unauthorized`. Client chuyển hướng người dùng đến trang Đăng nhập và lưu lại `orderId` hiện tại để tự động quay lại thanh toán ngay sau khi đăng nhập thành công.
 
 ### 9.2. Luồng EF-2: Đơn hàng không ở trạng thái hợp lệ để thanh toán
-* **Tại bước 5**: Đơn hàng đã ở trạng thái `PAID` (đã thanh toán rồi) hoặc `CANCELLED` (đã bị hủy). Riêng `PAYMENT_FAILED` được phép thử lại theo FR-08 (`PAYMENT_FAILED -> PENDING -> PAID`).
+* **Tại bước 5**: Đơn hàng đã ở trạng thái `PAID` (đã thanh toán rồi) hoặc `CANCELLED` (đã bị hủy). Riêng `PAYMENT_FAILED` được phép thử lại theo FR-08 (`PAYMENT_FAILED -> PENDING -> PAID`): hệ thống tự gọi `assertTransition(PAYMENT_FAILED -> PENDING)` (FR-08) trước khi thực hiện thanh toán lại, client không cần gọi thêm API nào khác.
 * **Hệ thống**: NestJS chặn lại với mã lỗi `400 Bad Request` kèm thông báo: *"Đơn hàng này không còn ở trạng thái chờ thanh toán"*. Không gọi sang cổng thanh toán.
 
 ### 9.3. Luồng EF-3: Cổng thanh toán báo lỗi hoặc giao dịch thất bại

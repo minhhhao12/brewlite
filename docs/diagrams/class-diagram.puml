@@ -1,0 +1,387 @@
+@startuml
+' Class-01 — BrewLite Domain Class Diagram (Task 2.3)
+' Nguồn truy vết: docs/requirements/srs.md (FR-01..FR-14), docs/requirements/use-case-overview.puml,
+' docs/requirements/use-case-checkout.md (UC-08) và docs/traceability-matrix.md (mã Class-01).
+' Bản kết xuất: docs/diagrams/class-diagram.svg
+title Class-01 — BrewLite: Sơ đồ lớp miền nghiệp vụ
+
+left to right direction
+
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+skinparam linetype ortho
+
+' =========================
+' ENUMERATIONS (FR-01, FR-02, FR-04, FR-06, FR-08, FR-09, FR-10)
+' =========================
+
+enum UserRole {
+    CUSTOMER
+    STAFF
+}
+
+enum ProductStatus {
+    ACTIVE
+    HIDDEN
+}
+
+enum OptionType {
+    SIZE
+    TOPPING
+}
+
+enum OrderStatus {
+    PENDING
+    PAID
+    PAYMENT_FAILED
+    PREPARING
+    READY
+    COMPLETED
+    CANCELLED
+}
+
+enum PaymentMethod {
+    WALLET
+    CARD
+}
+
+enum PaymentStatus {
+    INITIATED
+    PROCESSING
+    PAID
+    FAILED
+    EXPIRED
+}
+
+enum DiscountType {
+    PERCENTAGE
+    FIXED
+}
+
+enum PromotionStatus {
+    ACTIVE
+    INACTIVE
+}
+
+enum LoyaltyType {
+    EARN
+    REVERSAL
+}
+
+' =========================
+' USER AND AUTHENTICATION (FR-04)
+' =========================
+
+package "Account Management" {
+
+    class User {
+        -userId: UUID
+        -username: String
+        -email: String
+        -passwordHash: String
+        -role: UserRole
+        -isActive: Boolean
+        -loyaltyPoints: Integer
+        +register()
+        +verifyPassword(password: String): Boolean
+        +hasRole(role: UserRole): Boolean
+    }
+
+    note right of User
+        FR-04: role nạp từ DB, không tin client.
+        loyaltyPoints là giá trị dẫn xuất (cache) từ
+        LoyaltyTransaction, cập nhật trong cùng transaction (FR-10).
+    end note
+
+}
+
+' =========================
+' PRODUCT AND MENU (FR-01, FR-02, FR-11)
+' =========================
+
+package "Product Management" {
+
+    class Product {
+        -productId: UUID
+        -name: String
+        -description: String
+        -basePrice: Decimal
+        -imageUrl: String
+        -stock: Integer
+        -status: ProductStatus
+        +getAvailableOptions(): List
+        +calculatePrice(options: List): Decimal
+        +checkStock(quantity: Integer): Boolean
+        +decreaseStock(quantity: Integer)
+        +restoreStock(quantity: Integer)
+        +updateProduct()
+        +hideProduct()
+    }
+
+    note right of Product
+        FR-02: Size/Topping là bộ điều chỉnh giá, KHÔNG có kho riêng;
+        tồn kho chỉ quản lý ở Product.stock.
+        FR-05/FR-10: decreaseStock/restoreStock chạy trong transaction
+        (SELECT FOR UPDATE / optimistic lock - RSK-01, NFR-05).
+        FR-11 (Extended): chỉ role=STAFF được updateProduct/hideProduct.
+    end note
+
+    class ProductOption {
+        -optionId: UUID
+        -name: String
+        -type: OptionType
+        -priceAdjustment: Decimal
+        -isAvailable: Boolean
+        +validate(): Boolean
+    }
+
+}
+
+' =========================
+' CART (Client-side — FR-03)
+' =========================
+
+package "Cart Management" {
+
+    class Cart {
+        -createdAt: DateTime
+        -updatedAt: DateTime
+        +addItem(product: Product, quantity: Integer)
+        +updateQuantity(itemId: UUID, quantity: Integer)
+        +removeItem(itemId: UUID)
+        +calculateTotal(): Decimal
+        +clear()
+    }
+
+    note right of Cart
+        FR-03: giỏ hàng quản lý phía client, persist qua localStorage.
+        Server KHÔNG lưu Cart/CartItem và bỏ qua total do client gửi.
+    end note
+
+    class CartItem {
+        -itemId: UUID
+        -quantity: Integer
+        -unitPrice: Decimal
+        +calculateSubtotal(): Decimal
+        +updateQuantity(quantity: Integer)
+    }
+
+    note right of CartItem
+        itemId: khóa của dòng giỏ (client sinh), dùng cho
+        Cart.updateQuantity/removeItem. Hai dòng cùng product,
+        cùng size và cùng tập topping thì gộp quantity.
+        Ràng buộc FR-02: mỗi CartItem chọn ĐÚNG 1 option type=SIZE
+        và 0..* option type=TOPPING. unitPrice client chỉ là preview.
+    end note
+
+}
+
+' =========================
+' ORDER (FR-05, FR-07, FR-08, FR-09)
+' =========================
+
+package "Order Management" {
+
+    class Order {
+        -orderId: UUID
+        -orderCode: String
+        -createdAt: DateTime
+        -subtotal: Decimal
+        -discountAmount: Decimal
+        -totalAmount: Decimal
+        -status: OrderStatus
+        +calculateTotal(): Decimal
+        +confirmOrder()
+        +markPaid()
+        +markPaymentFailed()
+        +cancel(reason: String)
+        +assertTransition(newStatus: OrderStatus)
+    }
+
+    note right of Order
+        State Machine (FR-08 — nguồn duy nhất):
+        PENDING → PAID | PAYMENT_FAILED | CANCELLED
+        PAYMENT_FAILED → PENDING | CANCELLED
+        PAID → PREPARING | CANCELLED
+        PREPARING → READY
+        READY → COMPLETED
+        Terminal: COMPLETED, CANCELLED
+        FR-06/FR-10 chỉ được gọi assertTransition();
+        chuyển sai trả 400 Bad Request.
+    end note
+
+    class OrderItem {
+        -orderItemId: UUID
+        -productName: String
+        -quantity: Integer
+        -unitPrice: Decimal
+        -subtotal: Decimal
+        +calculateSubtotal(): Decimal
+    }
+
+    class OrderItemOption {
+        -optionName: String
+        -optionType: OptionType
+        -priceAdjustment: Decimal
+    }
+
+    note right of OrderItemOption
+        Snapshot tên/giá option tại thời điểm đặt đơn (FR-07):
+        total do server tính lại từ DB, không dùng total của client.
+    end note
+
+}
+
+' =========================
+' PAYMENT (FR-06, NFR-05)
+' =========================
+
+package "Payment Management" {
+
+    class Payment {
+        -paymentId: UUID
+        -idempotencyKey: String
+        -amount: Decimal
+        -method: PaymentMethod
+        -status: PaymentStatus
+        -transactionReference: String
+        -createdAt: DateTime
+        -expiresAt: DateTime
+        +initiate()
+        +verifyResult(): Boolean
+        +markPaid()
+        +markFailed()
+        +markExpired()
+    }
+
+    note right of Payment
+        FR-06: idempotent theo bộ (userId, orderId, idempotencyKey);
+        amount phải bằng Order.totalAmount.
+    end note
+
+    interface PaymentGateway {
+        +createPayment(payment: Payment): String
+        +verifyCallback(data: String): Boolean
+    }
+
+    note right of PaymentGateway
+        Cổng thanh toán mô phỏng (Won't cash - FR-13).
+    end note
+
+}
+
+' =========================
+' PROMOTION (FR-09)
+' =========================
+
+package "Promotion Management" {
+
+    class Promotion {
+        -promotionId: UUID
+        -code: String
+        -discountType: DiscountType
+        -discountValue: Decimal
+        -maxDiscount: Decimal
+        -minimumOrderAmount: Decimal
+        -usageLimit: Integer
+        -usageCount: Integer
+        -maxUsagePerUser: Integer
+        -startAt: DateTime
+        -endAt: DateTime
+        -status: PromotionStatus
+        +isValid(order: Order): Boolean
+        +calculateDiscount(order: Order): Decimal
+        +activate()
+        +deactivate()
+        +incrementUsage()
+    }
+
+    note right of Promotion
+        FR-09: tối đa 1 mã/đơn, không cộng dồn.
+        discount = min(configuredDiscount, maxDiscount, subtotal);
+        total = max(0, subtotal - discount). Lock row khi redeem.
+    end note
+
+}
+
+' =========================
+' LOYALTY (FR-10)
+' =========================
+
+package "Loyalty Management" {
+
+    class LoyaltyTransaction {
+        -transactionId: UUID
+        -points: Integer
+        -type: LoyaltyType
+        -createdAt: DateTime
+        +isEarning(): Boolean
+    }
+
+    note right of LoyaltyTransaction
+        FR-10: idempotent theo orderId (retry không cộng 2 lần).
+        Mỗi Order sinh tối đa 1 EARN (+points) và tối đa
+        1 REVERSAL (-points) khi PAID → CANCELLED.
+    end note
+
+}
+
+' =========================
+' RELATIONSHIPS
+' =========================
+
+' User and Cart (client-side conceptual ownership)
+User "1" -- "0..1" Cart : owns
+
+' User and Orders
+User "1" -- "0..*" Order : places
+
+' User and Loyalty
+User "1" -- "0..*" LoyaltyTransaction : earns
+
+' Product and Options
+Product "1" *-- "0..*" ProductOption : has
+
+' Cart composition
+Cart "1" *-- "0..*" CartItem : contains
+
+' CartItem references product and selected options
+CartItem "*" --> "1" Product : selects
+CartItem "*" --> "1..*" ProductOption : selectedOptions
+
+' Order composition
+Order "1" *-- "1..*" OrderItem : contains
+
+' OrderItem snapshots
+OrderItem "*" --> "1" Product : references
+OrderItem "1" *-- "0..*" OrderItemOption : snapshots
+
+' Order and Payment attempts
+Order "1" -- "0..*" Payment : payment attempts
+
+' Order and Loyalty (idempotent: tối đa 1 EARN + 1 REVERSAL, FR-10)
+Order "1" -- "0..*" LoyaltyTransaction : generates
+
+' Payment gateway
+Payment ..> PaymentGateway : uses
+
+' Promotion applied to order (tối đa 1 mã/đơn — FR-09)
+Order "0..*" --> "0..1" Promotion : applies
+
+' =========================
+' ENUM USAGE
+' =========================
+
+User --> UserRole
+Product --> ProductStatus
+ProductOption --> OptionType
+Order --> OrderStatus
+OrderItemOption --> OptionType
+Payment --> PaymentMethod
+Payment --> PaymentStatus
+Promotion --> DiscountType
+Promotion --> PromotionStatus
+LoyaltyTransaction --> LoyaltyType
+
+@enduml

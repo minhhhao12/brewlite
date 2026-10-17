@@ -1,0 +1,318 @@
+@startuml
+' Activity-01 — BrewLite: luồng end-to-end (Task 2.1)
+' Traceability: FR-01..FR-10, NFR-02, NFR-05; UC-01..UC-11
+' Scope: Checkout MVP + nhánh KDS Extended
+
+title Activity-01 — BrewLite: Xem menu → Đặt đơn → Thanh toán → Theo dõi đơn
+
+skinparam shadowing false
+skinparam defaultFontSize 12
+
+|Khách hàng|
+start
+:Duyệt menu đồ uống\nLoading / Empty / Error (FR-01);
+
+|Next.js Web (PWA)|
+:GET /products;
+
+|NestJS API|
+:Trả 200 OK với id, name, price,\nimageUrl, stock;
+
+|Khách hàng|
+:Chọn một sản phẩm;
+
+|Next.js Web (PWA)|
+:GET /products/:id;
+
+|NestJS API|
+:Trả chi tiết, mô tả,\nSize S/M/L kèm priceDelta,\nTopping kèm price;
+
+|Next.js Web (PWA)|
+:Preview tổng giá tức thời;\nGiá client chỉ để tham khảo (FR-02);
+
+|Khách hàng|
+:Chọn 1 Size, 0..* Topping;\nThêm món vào giỏ (qty 1..20);
+
+|Next.js Web (PWA)|
+:Lưu giỏ vào localStorage;\nCập nhật badge số lượng (FR-03);
+
+|Khách hàng|
+:Chọn "Đặt hàng";
+
+|Next.js Web (PWA)|
+if (Client có JWT?) then (Không)
+    :Chuyển đến Đăng nhập / Đăng ký (FR-04);\nGiữ nguyên giỏ;\nSau đăng nhập quay lại checkout;
+else (Có)
+endif
+
+:POST /orders {items, promoCode?}\nBearer JWT;\nKhông gửi total từ client;
+
+|NestJS API|
+:JWT Guard + ValidationPipe;\nKiểm tra DTO, giỏ không rỗng,\nqty 1..20, Size/Topping hợp lệ;
+
+if (JWT hợp lệ?) then (Không)
+    :401 Unauthorized;\nGiữ giỏ để người dùng đăng nhập lại;
+    stop
+else (Có)
+endif
+
+:BEGIN TRANSACTION;\nTính giá chính thức bằng dữ liệu DB;
+
+|PostgreSQL|
+:SELECT Product FOR UPDATE;\nĐọc giá sản phẩm, Size.priceDelta,\nTopping.price và stock;
+
+|NestJS API|
+:Tính subtotal từ DB;\nBỏ qua mọi total client gửi;
+
+if (Đủ tồn kho cho tất cả món?) then (Không)
+    |PostgreSQL|
+    :ROLLBACK toàn bộ transaction;
+
+    |NestJS API|
+    :400 Bad Request;\nTrả danh sách món hết hàng;
+
+    |Next.js Web (PWA)|
+    :Thông báo hết hàng;\nYêu cầu cập nhật giỏ;
+    stop
+
+else (Có)
+
+    if (Có promoCode?) then (Có)
+        |PostgreSQL|
+        :SELECT Promotion FOR UPDATE;\nKhóa promotion trong transaction;
+
+        |NestJS API|
+        :Kiểm tra promotion tồn tại,\ncòn hạn, còn usageLimit global/per-user,\nđủ minimumOrderAmount;
+
+        if (Mã khuyến mãi hợp lệ?) then (Không)
+            |PostgreSQL|
+            :ROLLBACK;
+
+            |NestJS API|
+            :400 Bad Request;\nNêu rõ lý do mã không hợp lệ;
+            stop
+        else (Có)
+            :Tính discount chính thức;\ndiscount = min(configuredDiscount,\nmaxDiscount, subtotal);\ntotal = max(0, subtotal - discount);
+        endif
+
+    else (Không)
+        :discount = 0;\ntotal = subtotal;
+    endif
+
+    |PostgreSQL|
+    :UPDATE Product trừ stock;\nINSERT Order (PENDING);\nINSERT OrderItem snapshot giá,\nSize, Topping, qty và discount;\nTăng Promotion.usageCount nếu có mã;\nCOMMIT;
+
+    |NestJS API|
+    :201 Created {orderId, orderCode,\ntotalAmount};
+
+endif
+
+|Next.js Web (PWA)|
+:Xóa giỏ ngay khi tạo PENDING thành công (FR-05);
+
+|Khách hàng|
+:Vào màn hình thanh toán;\nChọn Ví hoặc Thẻ;\nKhông hỗ trợ tiền mặt (FR-13);
+
+repeat
+    |Next.js Web (PWA)|
+    :Tạo UUID v4 cho lần thử thanh toán mới;\nRetry cùng request phải dùng lại key cũ;\nRetry sau PAYMENT_FAILED dùng key mới;
+    :POST /payments {orderId, method, amount}\nHeader Idempotency-Key + Bearer JWT;
+
+    |NestJS API|
+    :JWT Guard + ValidationPipe;
+
+    if (JWT hợp lệ?) then (Không)
+        :401 Unauthorized;
+        stop
+    else (Có)
+    endif
+
+    :Kiểm tra order.userId == jwt.userId;
+
+    if (Caller không sở hữu đơn?) then (Có)
+        :403 Forbidden;
+        stop
+    else (Không)
+    endif
+
+    :Kiểm tra amount == order.total;
+
+    if (Amount không khớp?) then (Có)
+        :400 Bad Request;
+        stop
+    else (Không)
+    endif
+
+    |PostgreSQL|
+    :Tra cứu Idempotency-Key theo scope\n(userId, orderId, key);
+
+    |NestJS API|
+    if (Key đã tồn tại?) then (Có)
+        if (Key đang PROCESSING?) then (Có)
+            :409 Conflict hoặc trả trạng thái đang xử lý;\nKhông gọi gateway lần nữa;
+
+            |Next.js Web (PWA)|
+            :Thông báo đang xác minh thanh toán;\nKhông tạo key mới để thanh toán lại;
+
+        else (Không)
+            :Trả kết quả đã lưu theo key;\nKhông gọi gateway lần nữa;
+
+            |Next.js Web (PWA)|
+            :Hiển thị kết quả thanh toán đã lưu;
+        endif
+
+    else (Không)
+
+        |PostgreSQL|
+        :BEGIN TRANSACTION;\nSELECT Order FOR UPDATE;\nĐọc lại trạng thái mới nhất;
+
+        |NestJS API|
+        if (Order đang PAYMENT_FAILED?) then (Có)
+            :assertTransition(\nPAYMENT_FAILED -> PENDING) (FR-08);
+
+            |PostgreSQL|
+            :UPDATE Order -> PENDING;\nINSERT Idempotency record PROCESSING;\nINSERT Payment PROCESSING;\nCOMMIT;
+
+        else (Không)
+            if (Order đang PENDING?) then (Không)
+                |PostgreSQL|
+                :ROLLBACK;
+
+                |NestJS API|
+                :400 Bad Request;\nĐơn không còn ở trạng thái\ncho phép thanh toán (EF-2);
+                stop
+
+            else (Có)
+                |PostgreSQL|
+                :INSERT Idempotency record PROCESSING;\nINSERT Payment PROCESSING;\nUNIQUE(userId, orderId, key)\nchặn request đồng thời;\nCOMMIT;
+            endif
+        endif
+
+        |Cổng thanh toán (Mock)|
+        :createPayment(orderId, amount, method);
+
+        |NestJS API|
+        if (Cổng thanh toán thành công?) then (Có)
+
+            |PostgreSQL|
+            :BEGIN TRANSACTION;
+
+            |NestJS API|
+            :assertTransition(PENDING -> PAID) (FR-08);
+
+            |PostgreSQL|
+            :UPDATE Payment -> PAID;\nLưu transactionId của gateway;\nUPDATE Order -> PAID;\nLưu kết quả vào Idempotency record;\nCOMMIT;
+
+            |NestJS API|
+            if (DB đã commit PAID thành công?) then (Có)
+                :Sau commit, gọi FR-10 để cộng điểm;
+
+                |PostgreSQL|
+                :INSERT LoyaltyTransaction (EARN);\nTính điểm theo tỷ lệ\n10.000 VNĐ = 1 điểm;\nChống cộng trùng theo orderId;
+
+                |NestJS API|
+                :Nếu transaction tích điểm đã tồn tại,\nkhông cộng điểm lần nữa;
+
+                |Next.js Web (PWA)|
+                :Hiển thị xác nhận #orderCode,\ntrạng thái PAID và totalAmount;
+
+            else (Không)
+                |NestJS API|
+                :Payment và Idempotency record\nPROCESSING đã được lưu trước gateway;\nKhông gọi gateway lần thứ hai;\nKhi DB phục hồi, đối soát giao dịch\nbằng Idempotency-Key / gateway reference;
+
+                |Next.js Web (PWA)|
+                :Thông báo đang xác minh thanh toán;\nKhông báo thất bại và không yêu cầu\nkhách thanh toán lại;
+            endif
+
+        else (Không)
+
+            |NestJS API|
+            :assertTransition(PENDING -> PAYMENT_FAILED) (FR-08);\nGhi nhận lỗi giao dịch;
+
+            |PostgreSQL|
+            :BEGIN TRANSACTION;\nUPDATE Payment -> FAILED;\nUPDATE Order -> PAYMENT_FAILED;\nLưu kết quả thất bại vào Idempotency record;\nCOMMIT;
+
+            |Next.js Web (PWA)|
+            :Thông báo thanh toán thất bại;\nCho phép "Thử thanh toán lại"\ncho cùng orderId với key mới;
+        endif
+    endif
+
+repeat while (Thanh toán PAYMENT_FAILED\nvà khách chọn "Thử lại"?) is (Có) not (Không)
+
+|Khách hàng|
+:Xem lịch sử và trạng thái đơn (UC-10);
+
+|Next.js Web (PWA)|
+:GET /orders/me;
+
+|NestJS API|
+:JWT Guard;\nChỉ truy vấn đơn của jwt.userId;
+
+|PostgreSQL|
+:SELECT đơn của người dùng;\nORDER BY createdAt DESC;
+
+|Next.js Web (PWA)|
+:Hiển thị orderCode, thời gian đặt,\nmón + Size/Topping, tổng thanh toán,\ntrạng thái theo FR-07;
+
+|Khách hàng|
+if (Có yêu cầu hủy đơn hoặc timeout?) then (Có)
+
+    |NestJS API|
+    :Kiểm tra quyền hủy:\nCustomer/timeout: PENDING hoặc PAYMENT_FAILED;\nStaff hỗ trợ: PAID -> CANCELLED;
+
+    |PostgreSQL|
+    :BEGIN TRANSACTION;\nSELECT Order FOR UPDATE;
+
+    |NestJS API|
+    if (Actor hợp lệ và transition sang CANCELLED hợp lệ?) then (Có)
+        :assertTransition(currentStatus -> CANCELLED) (FR-08);
+
+        |PostgreSQL|
+        :UPDATE Order -> CANCELLED;\nHoàn stock theo OrderItem;\nThực hiện trong cùng transaction;
+
+        if (Trạng thái trước khi hủy là PAID?) then (Có)
+            :Ghi LoyaltyTransaction (REVERSAL);\nTrừ số điểm đã cộng theo orderId;\nChống trừ điểm trùng (FR-10);
+            note right
+              Hoàn tiền giao dịch PAID
+              nằm ngoài MVP mock.
+            end note
+        else (Không)
+        endif
+
+        :COMMIT;
+
+        |NestJS API|
+        :Trả trạng thái đơn mới nhất;
+
+    else (Không)
+        |PostgreSQL|
+        :ROLLBACK;\nKhông hoàn kho / trừ điểm lần nữa;
+
+        |NestJS API|
+        :Trả 400 nếu transition không hợp lệ;\nTrả 403 nếu actor không đủ quyền;
+    endif
+
+    stop
+
+else (Không)
+
+    if (Đơn đang PAID và tiếp tục xử lý tại quầy?) then (Có)
+        |Nhân viên quầy (KDS - Extended)|
+        :assertTransition(PAID -> PREPARING) (FR-08);
+        :assertTransition(PREPARING -> READY) (FR-08);
+
+        |Khách hàng|
+        :Nhận nước tại quầy (pick-up);
+
+        |Nhân viên quầy (KDS - Extended)|
+        :assertTransition(READY -> COMPLETED) (FR-08);\nCOMPLETED là trạng thái terminal;
+        stop
+
+    else (Không)
+        |Khách hàng|
+        :Tiếp tục theo dõi trạng thái hiện tại;\nKhông tự động hủy chỉ vì đơn chưa PAID;
+        stop
+    endif
+endif
+
+@enduml
