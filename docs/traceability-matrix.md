@@ -37,7 +37,8 @@ Các mã sơ đồ dùng trong cột "Thiết kế / Sơ đồ" ở trên trỏ 
 
 | Mã sơ đồ | Tệp nguồn | Bản kết xuất | Trạng thái |
 | :--- | :--- | :--- | :--- |
-| Activity-01 | `docs/diagrams/activity-checkout.puml` | `docs/diagrams/activity-checkout.svg` | Đã có (Task 2.1) |
-| Sequence-01 | `docs/diagrams/sequence-checkout.puml` | `docs/diagrams/sequence-checkout.svg` | Đã có (Task 2.2) |
-| Class-01 | `docs/diagrams/class-diagram.puml` | `docs/diagrams/class-diagram.svg` | Đã có (Task 2.3) |
+| Activity-01 | `docs/diagrams/activity-checkout.puml` | `docs/diagrams/activity-checkout.svg` | puml đã cập nhật; **cần re-export SVG** |
+| Sequence-01 | `docs/diagrams/sequence-checkout.puml` | `docs/diagrams/sequence-checkout.svg` | puml đã cập nhật; **cần re-export SVG** |
+| Class-01 | `docs/diagrams/class-diagram.puml` | `docs/diagrams/class-diagram.svg` | puml đã cập nhật; **cần re-export SVG** |
 | Deployment-01 | `docs/deployment.md` + `docs/diagrams/deployment.puml` | `docs/diagrams/deployment.svg` | Chưa thực hiện (Task 3.2) |
+

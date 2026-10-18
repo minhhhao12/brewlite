@@ -90,8 +90,9 @@ package "Account Management" {
 
     note right of User
         FR-04: role nạp từ DB, không tin client.
-        loyaltyPoints là giá trị dẫn xuất (cache) từ
-        LoyaltyTransaction, cập nhật trong cùng transaction (FR-10).
+        loyaltyPoints là giá trị dẫn xuất (cache) từ LoyaltyTransaction.
+        Cập nhật trong cùng transaction với việc INSERT LoyaltyTransaction,
+        SAU khi transaction thanh toán (PENDING -> PAID) đã commit (FR-10).
     end note
 
 }
@@ -125,6 +126,9 @@ package "Product Management" {
         FR-05/FR-10: decreaseStock/restoreStock chạy trong transaction
         (SELECT FOR UPDATE / optimistic lock - RSK-01, NFR-05).
         FR-11 (Extended): chỉ role=STAFF được updateProduct/hideProduct.
+        hideProduct() -> status = HIDDEN (ẩn món khỏi menu); trạng thái
+        còn/hết hàng hiển thị suy từ stock (FR-01); thao tác "chuyển hết
+        hàng" của staff = updateProduct() đặt stock = 0 (cần xác nhận).
     end note
 
     class ProductOption {
@@ -147,7 +151,7 @@ package "Cart Management" {
     class Cart {
         -createdAt: DateTime
         -updatedAt: DateTime
-        +addItem(product: Product, quantity: Integer)
+        +addItem(product: Product, size: ProductOption, toppings: List, quantity: Integer)
         +updateQuantity(itemId: UUID, quantity: Integer)
         +removeItem(itemId: UUID)
         +calculateTotal(): Decimal
@@ -192,7 +196,6 @@ package "Order Management" {
         -totalAmount: Decimal
         -status: OrderStatus
         +calculateTotal(): Decimal
-        +confirmOrder()
         +markPaid()
         +markPaymentFailed()
         +cancel(reason: String)
@@ -209,6 +212,9 @@ package "Order Management" {
         Terminal: COMPLETED, CANCELLED
         FR-06/FR-10 chỉ được gọi assertTransition();
         chuyển sai trả 400 Bad Request.
+        markPaid/markPaymentFailed/cancel chỉ là API tiện dụng,
+        BẮT BUỘC gọi assertTransition() bên trong — không định
+        nghĩa transition riêng.
     end note
 
     class OrderItem {
@@ -241,6 +247,8 @@ package "Payment Management" {
 
     class Payment {
         -paymentId: UUID
+        -userId: UUID
+        -orderId: UUID
         -idempotencyKey: String
         -amount: Decimal
         -method: PaymentMethod
@@ -256,17 +264,36 @@ package "Payment Management" {
     }
 
     note right of Payment
-        FR-06: idempotent theo bộ (userId, orderId, idempotencyKey);
+        FR-06 + NFR-05: Payment LÀ bản ghi idempotency.
+        UNIQUE(userId, orderId, idempotencyKey) — tương đương
+        UNIQUE(orderId, idempotencyKey) vì orderId xác định userId.
+        Trạng thái PROCESSING là "reservation" tạo TRƯỚC khi gọi
+        gateway; kết quả thành công/thất bại được lưu cùng key để
+        retry trả về kết quả cũ (không gọi gateway lần 2).
         amount phải bằng Order.totalAmount.
+        FR-06 (siết chặt): mỗi order có tối đa 1 Payment PROCESSING tại
+        một thời điểm — guard "còn Payment PROCESSING cho orderId" nằm
+        dưới khóa SELECT Order FOR UPDATE (chặn double-charge khác key).
+        expiresAt / markExpired / verifyResult dùng cho đối soát timeout
+        (RSK-03): timeout chưa xác minh -> giữ PROCESSING, đơn vẫn PENDING,
+        trả 409; quá expiresAt & chưa trừ tiền -> markExpired() -> EXPIRED.
     end note
 
     interface PaymentGateway {
-        +createPayment(payment: Payment): String
-        +verifyCallback(data: String): Boolean
+        +createPayment(orderId: UUID, amount: Decimal, method: PaymentMethod): String
+        +queryTransaction(reference: String): PaymentStatus
+        +verifyCallback(rawBody: String, signature: String): Boolean
     }
 
     note right of PaymentGateway
-        Cổng thanh toán mô phỏng (Won't cash - FR-13).
+        Cổng thanh toán mô phỏng, gọi đồng bộ (FR-06; Won't cash - FR-13).
+        queryTransaction: đối soát trạng thái giao dịch theo reference —
+        dùng bởi Payment.verifyResult() khi timeout (FR-06, RSK-03).
+        verifyCallback: xác thực callback/webhook bất đồng bộ (Extended,
+        ngoài MVP — dự phòng RSK-03): HMAC-SHA256(rawBody, GATEWAY_SECRET),
+        so sánh constant-time, cửa sổ timestamp ±5' chống replay, idempotent
+        theo eventId. Callback hợp lệ đi qua đúng assertTransition() của FR-08,
+        không tự định nghĩa transition riêng. GATEWAY_SECRET nằm trong .env.
     end note
 
 }
@@ -301,6 +328,8 @@ package "Promotion Management" {
         FR-09: tối đa 1 mã/đơn, không cộng dồn.
         discount = min(configuredDiscount, maxDiscount, subtotal);
         total = max(0, subtotal - discount). Lock row khi redeem.
+        usageCount tăng trong transaction tạo đơn (Activity-01);
+        SRS không quy định hoàn lượt khi đơn bị hủy — cần xác nhận.
     end note
 
 }
@@ -328,6 +357,29 @@ package "Loyalty Management" {
 }
 
 ' =========================
+' AUDIT (FR-11 — Extended)
+' =========================
+
+package "Audit Management" {
+
+    class AuditLog {
+        -auditId: UUID
+        -actorUserId: UUID
+        -action: String
+        -entityType: String
+        -entityId: UUID
+        -beforeValue: String
+        -afterValue: String
+        -createdAt: DateTime
+    }
+
+    note right of AuditLog
+        FR-11: ghi audit log khi staff cập nhật sản phẩm / chuyển hết hàng.
+    end note
+
+}
+
+' =========================
 ' RELATIONSHIPS
 ' =========================
 
@@ -337,8 +389,14 @@ User "1" -- "0..1" Cart : owns
 ' User and Orders
 User "1" -- "0..*" Order : places
 
+' User and payments (FR-06 — userId lưu trên Payment để tra scope idempotency)
+User "1" -- "0..*" Payment : pays
+
 ' User and Loyalty
 User "1" -- "0..*" LoyaltyTransaction : earns
+
+' User and audit log (FR-11)
+User "1" -- "0..*" AuditLog : performs
 
 ' Product and Options
 Product "1" *-- "0..*" ProductOption : has

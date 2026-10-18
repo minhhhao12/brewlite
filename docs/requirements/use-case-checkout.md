@@ -29,7 +29,7 @@ Khách hàng nhấn nút **"Xác nhận thanh toán"** trên màn hình Thanh to
 
 ## 5. Tiền điều kiện (Pre-conditions)
 1. Khách hàng đã đăng nhập thành công vào hệ thống và sở hữu JWT Token còn hiệu lực.
-2. Đơn hàng cần thanh toán đã tồn tại trong CSDL với trạng thái **`PENDING`**, thuộc quyền sở hữu của chính khách hàng đăng nhập, và có tổng số tiền hợp lệ ($> 0$).
+2. Đơn hàng cần thanh toán đã tồn tại trong CSDL với trạng thái **`PENDING`**, hoặc **`PAYMENT_FAILED`** (được phép thử lại theo FR-08), thuộc quyền sở hữu của chính khách hàng đăng nhập, và có tổng số tiền hợp lệ ($> 0$).
 3. Dịch vụ Cổng thanh toán mô phỏng (Payment Gateway Service) đang hoạt động và có thể tiếp nhận kết nối từ NestJS API.
 
 ---
@@ -37,15 +37,23 @@ Khách hàng nhấn nút **"Xác nhận thanh toán"** trên màn hình Thanh to
 ## 6. Hậu điều kiện (Post-conditions)
 
 ### 6.1. Trường hợp thành công
-* Bản ghi thanh toán mới (`Payment`) được khởi tạo trong CSDL lưu trữ: `id`, `orderId`, `amount`, `method`, `idempotencyKey` và thời gian thanh toán.
+* Bản ghi thanh toán (`Payment`) đã được tạo ở trạng thái `PROCESSING` **trước khi** gọi cổng thanh toán (xem bước 5) được cập nhật sang **`PAID`**, lưu: `id`, `userId`, `orderId`, `amount`, `method`, `idempotencyKey`, `transactionReference` và thời gian thanh toán.
 * Trạng thái đơn hàng trong bảng `Order` được cập nhật từ `PENDING` $\rightarrow$ **`PAID`**.
 * Giỏ hàng đã được làm sạch từ bước tạo đơn (`POST /orders` -> `PENDING`); bước này không dùng giỏ nữa.
 * Khách hàng nhận được thông báo giao dịch thành công kèm mã đơn hàng (ví dụ `#1042`), trạng thái `PAID` và lời mời nhận nước tại quầy.
 
-### 6.2. Trường hợp thất bại
-* Trạng thái đơn hàng chuyển sang **`PAYMENT_FAILED`**.
-* Không có giao dịch trừ tiền nào được hoàn tất.
-* Hệ thống thông báo rõ nguyên nhân thất bại và cung cấp nút **"Thử thanh toán lại"** cho đúng đơn hàng này mà không tạo thêm bản ghi đơn hàng trùng lặp.
+### 6.2. Trường hợp thất bại (đã xác minh)
+* Bản ghi `Payment` tương ứng được cập nhật sang **`FAILED`** và trạng thái đơn hàng chuyển sang **`PAYMENT_FAILED`**; kết quả thất bại được lưu theo `idempotencyKey` để lần gọi trùng key trả lại kết quả cũ (không gọi cổng thanh toán lại).
+* Chỉ áp dụng khi cổng thanh toán phản hồi lỗi **xác định**, hoặc đối soát xác nhận chưa trừ tiền → chắc chắn không có giao dịch trừ tiền nào được hoàn tất.
+* Hệ thống thông báo rõ nguyên nhân thất bại và cung cấp nút **"Thử thanh toán lại"** cho đúng đơn hàng này; lần thử lại dùng `Idempotency-Key` **mới** trên cùng `orderId`, không tạo thêm bản ghi đơn hàng trùng lặp.
+
+### 6.3. Trường hợp timeout / chưa xác minh được (đang đối soát)
+* Khi cổng thanh toán **timeout** hoặc trả kết quả không xác định, hệ thống **không kết luận `FAILED` ngay** (tránh trừ tiền 2 lần): bản ghi `Payment` được giữ ở **`PROCESSING`** kèm `expiresAt`, đơn hàng **vẫn `PENDING`**, và API trả `409/202` *"đang xác minh"*.
+* Job đối soát nền (qua `verifyResult()` / callback `verifyCallback`, RSK-03) sẽ chốt kết quả:
+  * xác nhận **thành công** → `Payment = PAID`, đơn `PENDING -> PAID`;
+  * xác nhận **thất bại** → `Payment = FAILED`, đơn `PENDING -> PAYMENT_FAILED`;
+  * `Payment` ở `PROCESSING` quá `expiresAt` mà xác nhận **chưa trừ tiền** → `markExpired()` → `Payment = EXPIRED` (đơn vẫn `PENDING`) để khách thử lại bằng key mới.
+* Trong lúc còn `PROCESSING` chưa hết hạn, mọi yêu cầu thanh toán mới (kể cả **key khác**) đều bị chặn `409` để bảo đảm một đơn chỉ có tối đa 1 giao dịch đang xử lý.
 
 ---
 
@@ -57,10 +65,10 @@ Khách hàng nhấn nút **"Xác nhận thanh toán"** trên màn hình Thanh to
 | **2** | Khách hàng chọn phương thức thanh toán mong muốn (ví dụ: *Ví điện tử*). | Giao diện ghi nhận lựa chọn và kích hoạt nút "Xác nhận thanh toán". |
 | **3** | Khách hàng nhấn nút **"Xác nhận thanh toán"**. | Client Next.js tự động tạo một mã duy nhất `Idempotency-Key` (chuẩn UUID v4). |
 | **4** | | Client Next.js gửi yêu cầu `POST /payments` chứa: `orderId`, `method`, `amount` và header `Idempotency-Key` kèm JWT Bearer Token tới NestJS API. |
-| **5** | | NestJS API (Payment Controller & Service):<br>1. Kiểm tra JWT Token và thẩm định dữ liệu đầu vào (`class-validator`).<br>2. Kiểm tra `Idempotency-Key` xem đã tồn tại giao dịch xử lý trước đó chưa.<br>3. Kiểm tra đơn hàng trong CSDL có đúng trạng thái `PENDING` và thuộc về user hiện tại hay không. |
+| **5** | | NestJS API (Payment Controller & Service):<br>1. Kiểm tra JWT Token và thẩm định dữ liệu đầu vào (`class-validator`).<br>2. Kiểm tra `Idempotency-Key` xem đã tồn tại giao dịch xử lý trước đó chưa.<br>3. Mở transaction và khóa đơn (`SELECT Order ... FOR UPDATE`); kiểm tra đơn thuộc về user hiện tại (ngược lại `403`), `amount == order.totalAmount` (ngược lại `400`), và trạng thái hợp lệ để thanh toán: `PENDING`, hoặc `PAYMENT_FAILED` (khi đó gọi `assertTransition(PAYMENT_FAILED -> PENDING)` — FR-08).<br>4. Nếu còn `Payment` **khác** của đúng `orderId` đang `PROCESSING` chưa hết `expiresAt` → trả `409` (đang xác minh), không tạo giao dịch mới. Ngược lại ghi bản ghi `Payment` trạng thái `PROCESSING` (kèm `expiresAt`) làm mốc idempotency (ràng buộc UNIQUE `(userId, orderId, idempotencyKey)`) **trước khi** gọi cổng thanh toán; nếu trùng UNIQUE do request đồng thời thì đọc lại bản ghi và trả `409`/kết quả đã lưu. |
 | **6** | | NestJS API kích hoạt Use Case con **"Xử lý thanh toán online"**: Gọi API dịch vụ Cổng thanh toán mô phỏng (Mock Payment Gateway) để trừ tiền. |
 | **7** | | Cổng thanh toán mô phỏng xử lý giao dịch an toàn và phản hồi trạng thái thành công (`SUCCESS`, Transaction ID). |
-| **8** | | NestJS API mở Transaction:<br>1. Tạo bản ghi `Payment` với thông tin giao dịch và `Idempotency-Key`.<br>2. Cập nhật trạng thái đơn hàng từ `PENDING` $\rightarrow$ **`PAID`**.<br>3. Commit transaction và trả về phản hồi HTTP `200 OK` kèm thông tin đơn đã thanh toán. |
+| **8** | | NestJS API mở Transaction:<br>1. Cập nhật bản ghi `Payment` (`PROCESSING` $\rightarrow$ `PAID`) kèm `transactionReference` từ cổng thanh toán.<br>2. Cập nhật trạng thái đơn hàng từ `PENDING` $\rightarrow$ **`PAID`**.<br>3. Commit transaction và trả về phản hồi HTTP `200 OK` kèm thông tin đơn đã thanh toán. |
 | **9** | Khách hàng xem màn hình xác nhận thanh toán thành công và nhận mã lấy nước. | Giao diện Next.js chuyển hướng khách hàng sang màn hình Xác nhận đơn (`/orders/:id/confirmation`), hiển thị mã đơn hàng, trạng thái `PAID` và thông điệp chuẩn bị đồ uống (giỏ hàng đã xóa từ lúc tạo đơn `PENDING`). |
 
 ---
@@ -69,7 +77,7 @@ Khách hàng nhấn nút **"Xác nhận thanh toán"** trên màn hình Thanh to
 
 ### 8.1. Luồng AF-1: Áp dụng mã khuyến mãi (Extend UC - Áp dụng mã khuyến mãi)
 * **Trước bước 1 (lúc tạo đơn):** khách hàng nhập mã giảm giá ở màn hình giỏ hàng; mã được gửi kèm trong `POST /orders` theo FR-09.
-* **Hệ thống**: Kiểm tra mã hợp lệ, tính discount vào `order.total` trước khi tạo `PENDING`.
+* **Hệ thống**: Kiểm tra mã hợp lệ, tính discount vào `order.totalAmount` trước khi tạo `PENDING`.
 * Khách hàng thanh toán từ bước 1 với số tiền sau giảm giá; không sửa total khi đơn đã `PENDING`.
 
 ### 8.2. Luồng AF-2: Đổi phương thức thanh toán
@@ -88,25 +96,31 @@ Khách hàng nhấn nút **"Xác nhận thanh toán"** trên màn hình Thanh to
 * **Hệ thống**: NestJS chặn lại với mã lỗi `400 Bad Request` kèm thông báo: *"Đơn hàng này không còn ở trạng thái chờ thanh toán"*. Không gọi sang cổng thanh toán.
 
 ### 9.3. Luồng EF-3: Cổng thanh toán báo lỗi hoặc giao dịch thất bại
-* **Tại bước 7**: Tài khoản không đủ số dư, thông tin thanh toán sai hoặc cổng thanh toán bị timeout.
-* **Hệ thống**: 
-  1. Cập nhật trạng thái đơn hàng sang **`PAYMENT_FAILED`**.
-  2. Ghi nhận log lỗi giao dịch.
-  3. Trả về mã lỗi HTTP `400 / 502` cho client kèm thông báo nguyên nhân thất bại.
-  4. Giao diện Next.js hiển thị thông báo lỗi và nút **"Thử thanh toán lại"** hoặc **"Chọn phương thức khác"**.
+* **Tại bước 7**: Tài khoản không đủ số dư, thông tin thanh toán sai (lỗi **xác định**) hoặc cổng thanh toán bị **timeout** (kết quả không xác định).
+* **Hệ thống**:
+  1. **Lỗi xác định**: cập nhật `Payment` sang **`FAILED`** (lưu kết quả theo `Idempotency-Key`), đơn hàng sang **`PAYMENT_FAILED`**, ghi log, trả `400/502`; UI hiển thị nút **"Thử thanh toán lại"** / **"Chọn phương thức khác"**.
+  2. **Timeout / không xác định**: **không** kết luận thất bại ngay (xem §6.3). Gọi `verifyResult()` đối soát với cổng thanh toán (hoặc chờ callback `verifyCallback`):
+     * xác minh *thất bại* → xử lý như lỗi xác định;
+     * xác minh *thành công* → chuyển `PENDING -> PAID` như luồng chính;
+     * *chưa xác minh được* → giữ `Payment = PROCESSING` (kèm `expiresAt`), đơn vẫn `PENDING`, trả `409/202` *"đang xác minh"*; **không** cho khách thử lại bằng key mới cho tới khi đối soát xong.
 
 ### 9.4. Luồng EF-4: Gửi lặp lại yêu cầu thanh toán
 * **Tại bước 4**: Do đường truyền mạng chập chờn hoặc người dùng nhấn nút thanh toán nhiều lần liên tiếp, client gửi đi nhiều request với cùng một mã `Idempotency-Key`.
 * **Hệ thống**:
-  1. NestJS phát hiện `Idempotency-Key` này đã tồn tại trong CSDL:
-     - Nếu giao dịch trước đó đang xử lý: Trả về trạng thái đang tiến hành (`409 Conflict` hoặc chờ kết quả).
-     - Nếu giao dịch trước đó đã thành công: Trả về ngay kết quả giao dịch ban đầu (mã đơn, trạng thái `PAID`).
+  1. NestJS phát hiện `Idempotency-Key` này đã tồn tại trong CSDL (bản ghi `Payment`):
+     - Nếu giao dịch trước đó đang xử lý (`PROCESSING`): Trả về trạng thái đang tiến hành (`409 Conflict` hoặc chờ kết quả).
+     - Nếu giao dịch trước đó đã thành công (`PAID`): Trả về ngay kết quả giao dịch ban đầu (mã đơn, trạng thái `PAID`).
+     - Nếu giao dịch trước đó đã thất bại (`FAILED`): Trả về ngay kết quả thất bại đã lưu (trạng thái `PAYMENT_FAILED`); khách muốn thử lại thì dùng `Idempotency-Key` **mới**.
   2. Tuyệt đối không gửi lệnh trừ tiền sang Cổng thanh toán lần thứ 2.
+
+### 9.5. Luồng EF-5: Gửi yêu cầu thanh toán mới khi giao dịch trước chưa kết thúc
+* **Tại bước 4**: khách (hoặc client) tạo `Idempotency-Key` **mới** và gửi `POST /payments` cho cùng `orderId` trong lúc giao dịch trước còn `PROCESSING` (ví dụ sau timeout chưa đối soát xong, hoặc do bấm nút tạo key mới).
+* **Hệ thống**: dưới khóa `SELECT Order ... FOR UPDATE`, phát hiện còn `Payment` khác đang `PROCESSING` cho đúng `orderId` → trả `409 Conflict` (*"đang xác minh giao dịch trước đó"*), **không** tạo giao dịch mới và **không** gọi cổng thanh toán. Mục đích: bảo đảm một đơn chỉ có tối đa 1 giao dịch đang xử lý, chặn trừ tiền 2 lần ngay cả khi client đổi key.
 
 ---
 
 ## 10. Truy vết yêu cầu (Task 1.3)
 
-`UC-08` bao phủ `FR-05` (đơn `PENDING` đầu vào), `FR-06` (luồng chính), `FR-09` (extend khuyến mãi), `NFR-02` (JWT + validate), `NFR-05` (transaction + idempotency). Sơ đồ nguồn `use-case-checkout.puml` dùng ID chuẩn `UC-08 / UC-09 / UC-08a..e` khớp `srs.md`.
+`UC-08` bao phủ `FR-05` (đơn `PENDING` đầu vào), `FR-06` (luồng chính), `FR-09` (mã khuyến mãi extend `UC-07`), `NFR-02` (JWT + validate), `NFR-05` (transaction + idempotency). Sơ đồ nguồn `use-case-checkout.puml` dùng ID `UC-07` (base/ngữ cảnh), `UC-08`, `UC-09` và các use case con `UC-08a..e`; trong đó `UC-09` **extend `UC-07`** vì mã được áp dụng lúc tạo đơn (AF-1). Các ID `UC-08a..e` là phân rã nội bộ của `UC-08`, được định nghĩa trong tài liệu này (không định nghĩa lại trong `srs.md`).
 
 

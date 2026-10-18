@@ -93,6 +93,10 @@ else (Có)
             stop
         else (Có)
             :Tính discount chính thức;\ndiscount = min(configuredDiscount,\nmaxDiscount, subtotal);\ntotal = max(0, subtotal - discount);
+            note right
+              FR-09: usageCount tăng trong transaction tạo đơn.
+              SRS không quy định hoàn lượt khi đơn bị hủy — cần xác nhận.
+            end note
         endif
 
     else (Không)
@@ -122,7 +126,9 @@ repeat
     :JWT Guard + ValidationPipe;
 
     if (JWT hợp lệ?) then (Không)
-        :401 Unauthorized;
+        |Next.js Web (PWA)|
+        :401 Unauthorized; Lưu lại orderId;
+        :Chuyển đến Đăng nhập rồi quay lại thanh toán (EF-1);
         stop
     else (Có)
     endif
@@ -135,7 +141,7 @@ repeat
     else (Không)
     endif
 
-    :Kiểm tra amount == order.total;
+    :Kiểm tra amount == order.totalAmount;
 
     if (Amount không khớp?) then (Có)
         :400 Bad Request;
@@ -167,73 +173,116 @@ repeat
         :BEGIN TRANSACTION;\nSELECT Order FOR UPDATE;\nĐọc lại trạng thái mới nhất;
 
         |NestJS API|
-        if (Order đang PAYMENT_FAILED?) then (Có)
-            :assertTransition(\nPAYMENT_FAILED -> PENDING) (FR-08);
-
-            |PostgreSQL|
-            :UPDATE Order -> PENDING;\nINSERT Idempotency record PROCESSING;\nINSERT Payment PROCESSING;\nCOMMIT;
-
-        else (Không)
-            if (Order đang PENDING?) then (Không)
-                |PostgreSQL|
-                :ROLLBACK;
-
-                |NestJS API|
-                :400 Bad Request;\nĐơn không còn ở trạng thái\ncho phép thanh toán (EF-2);
-                stop
-
-            else (Có)
-                |PostgreSQL|
-                :INSERT Idempotency record PROCESSING;\nINSERT Payment PROCESSING;\nUNIQUE(userId, orderId, key)\nchặn request đồng thời;\nCOMMIT;
-            endif
-        endif
-
-        |Cổng thanh toán (Mock)|
-        :createPayment(orderId, amount, method);
-
-        |NestJS API|
-        if (Cổng thanh toán thành công?) then (Có)
-
-            |PostgreSQL|
-            :BEGIN TRANSACTION;
-
-            |NestJS API|
-            :assertTransition(PENDING -> PAID) (FR-08);
-
-            |PostgreSQL|
-            :UPDATE Payment -> PAID;\nLưu transactionId của gateway;\nUPDATE Order -> PAID;\nLưu kết quả vào Idempotency record;\nCOMMIT;
-
-            |NestJS API|
-            if (DB đã commit PAID thành công?) then (Có)
-                :Sau commit, gọi FR-10 để cộng điểm;
+        if (Không tồn tại Payment khác của đơn\nđang PROCESSING (chưa hết expiresAt)?) then (Có)
+            if (Order đang PAYMENT_FAILED?) then (Có)
+                :assertTransition(\nPAYMENT_FAILED -> PENDING) (FR-08);
 
                 |PostgreSQL|
-                :INSERT LoyaltyTransaction (EARN);\nTính điểm theo tỷ lệ\n10.000 VNĐ = 1 điểm;\nChống cộng trùng theo orderId;
-
-                |NestJS API|
-                :Nếu transaction tích điểm đã tồn tại,\nkhông cộng điểm lần nữa;
-
-                |Next.js Web (PWA)|
-                :Hiển thị xác nhận #orderCode,\ntrạng thái PAID và totalAmount;
+                :UPDATE Order -> PENDING;\nINSERT Payment PROCESSING (kèm expiresAt)\n(Payment là bản ghi idempotency);\nCOMMIT;
 
             else (Không)
-                |NestJS API|
-                :Payment và Idempotency record\nPROCESSING đã được lưu trước gateway;\nKhông gọi gateway lần thứ hai;\nKhi DB phục hồi, đối soát giao dịch\nbằng Idempotency-Key / gateway reference;
+                if (Order đang PENDING?) then (Không)
+                    |PostgreSQL|
+                    :ROLLBACK;
 
-                |Next.js Web (PWA)|
-                :Thông báo đang xác minh thanh toán;\nKhông báo thất bại và không yêu cầu\nkhách thanh toán lại;
+                    |NestJS API|
+                    :400 Bad Request;\nĐơn không còn ở trạng thái\ncho phép thanh toán (EF-2);
+                    stop
+
+                else (Có)
+                    |PostgreSQL|
+                    :INSERT Payment PROCESSING (kèm expiresAt)\n(Payment là bản ghi idempotency);\nUNIQUE(userId, orderId, idempotencyKey)\nchặn request đồng thời cùng key\n(vi phạm → đọc lại & trả kết quả);\nCOMMIT;
+                endif
             endif
 
-        else (Không)
+            |Cổng thanh toán (Mock)|
+            :createPayment(orderId, amount, method);
 
             |NestJS API|
-            :assertTransition(PENDING -> PAYMENT_FAILED) (FR-08);\nGhi nhận lỗi giao dịch;
+            if (Cổng thanh toán thành công?) then (Có)
 
+                |PostgreSQL|
+                :BEGIN TRANSACTION;
+
+                |NestJS API|
+                :assertTransition(PENDING -> PAID) (FR-08);
+
+                |PostgreSQL|
+                :UPDATE Payment -> PAID;\nLưu transactionId của gateway;\nUPDATE Order -> PAID;\n(Kết quả lưu trên chính Payment\n= bản ghi idempotency);\nCOMMIT;
+
+                |NestJS API|
+                if (DB đã commit PAID thành công?) then (Có)
+                    :Sau commit, gọi FR-10 để cộng điểm;
+
+                    |PostgreSQL|
+                    :INSERT LoyaltyTransaction (EARN);\nTính điểm theo tỷ lệ\n10.000 VNĐ = 1 điểm;\nChống cộng trùng theo orderId;
+
+                    |NestJS API|
+                    :Nếu transaction tích điểm đã tồn tại,\nkhông cộng điểm lần nữa;
+
+                    |Next.js Web (PWA)|
+                    :Hiển thị xác nhận #orderCode,\ntrạng thái PAID và totalAmount;
+
+                else (Không)
+                    |NestJS API|
+                    :Payment đã ở PROCESSING trước gateway;\nKhông gọi gateway lần thứ hai;\nĐối soát khi DB phục hồi bằng\nverifyResult()/Idempotency-Key (FR-06);
+                    note right
+                      RSK-03/FR-06: gateway đã trừ tiền nhưng commit DB
+                      thất bại → giữ PROCESSING và đối soát, KHÔNG báo thất bại,
+                      không yêu cầu khách trả lại.
+                    end note
+
+                    |Next.js Web (PWA)|
+                    :Thông báo đang xác minh thanh toán;\nKhông báo thất bại và không yêu cầu\nkhách thanh toán lại;
+                endif
+
+            else (Không)
+
+                |NestJS API|
+                if (Gateway báo lỗi XÁC ĐỊNH?) then (Có)
+                    :assertTransition(PENDING -> PAYMENT_FAILED) (FR-08);\nGhi nhận lỗi giao dịch;
+
+                    |PostgreSQL|
+                    :BEGIN TRANSACTION;\nUPDATE Payment -> FAILED;\nUPDATE Order -> PAYMENT_FAILED;\n(Kết quả thất bại lưu trên Payment);\nCOMMIT;
+
+                    |Next.js Web (PWA)|
+                    :Thông báo thanh toán thất bại;\nCho phép "Thử thanh toán lại"\ncho cùng orderId với key mới;
+
+                else (Không - Timeout/kết quả KHÔNG xác định)
+                    :Gọi verifyResult() đối soát gateway\n(transactionReference/key) hoặc chờ callback (RSK-03);
+
+                    if (Đối soát xác nhận THÀNH CÔNG?) then (Có)
+                        |PostgreSQL|
+                        :BEGIN TRANSACTION;\nUPDATE Payment -> PAID;\nLưu transactionId;\nUPDATE Order -> PAID (assertTransition);\nCOMMIT;
+
+                        |Next.js Web (PWA)|
+                        :Hiển thị xác nhận #orderCode,\ntrạng thái PAID và totalAmount;
+
+                    else (Không)
+                        if (Đối soát xác nhận THẤT BẠI?) then (Có)
+                            |PostgreSQL|
+                            :BEGIN TRANSACTION;\nUPDATE Payment -> FAILED;\nUPDATE Order -> PAYMENT_FAILED;\nCOMMIT;
+
+                            |Next.js Web (PWA)|
+                            :Thông báo thanh toán thất bại;\nCho phép "Thử thanh toán lại"\ncho cùng orderId với key mới;
+
+                        else (CHƯA xác minh được)
+                            |PostgreSQL|
+                            :Giữ Payment = PROCESSING (kèm expiresAt);\nOrder vẫn PENDING;\nJob đối soát nền chốt PAID/PAYMENT_FAILED;\nquá expiresAt & chưa trừ tiền → markExpired() → EXPIRED;
+
+                            |Next.js Web (PWA)|
+                            :Thông báo "Đang xác minh giao dịch";\nKHÔNG tạo key mới để thanh toán lại (FR-06);
+                        endif
+                    endif
+                endif
+            endif
+        else (Không)
             |PostgreSQL|
-            :BEGIN TRANSACTION;\nUPDATE Payment -> FAILED;\nUPDATE Order -> PAYMENT_FAILED;\nLưu kết quả thất bại vào Idempotency record;\nCOMMIT;
+            :ROLLBACK;
 
-            |Next.js Web (PWA)|
-            :Thông báo thanh toán thất bại;\nCho phép "Thử thanh toán lại"\ncho cùng orderId với key mới;
+            |NestJS API|
+            :409 Conflict;\nĐang xác minh giao dịch trước đó\n- không tạo giao dịch mới (EF-5);
+            stop
         endif
     endif
 
@@ -255,10 +304,14 @@ repeat while (Thanh toán PAYMENT_FAILED\nvà khách chọn "Thử lại"?) is (
 :Hiển thị orderCode, thời gian đặt,\nmón + Size/Topping, tổng thanh toán,\ntrạng thái theo FR-07;
 
 |Khách hàng|
-if (Có yêu cầu hủy đơn hoặc timeout?) then (Có)
+if (Khách chủ động hủy đơn?) then (Có)
+    note right
+      FR-08: PENDING -> CANCELLED do customer chủ động hủy;
+      hệ thống KHÔNG auto-hủy theo timeout.
+    end note
 
     |NestJS API|
-    :Kiểm tra quyền hủy:\nCustomer/timeout: PENDING hoặc PAYMENT_FAILED;\nStaff hỗ trợ: PAID -> CANCELLED;
+    :Kiểm tra quyền hủy:\nCustomer: PENDING hoặc PAYMENT_FAILED;\nStaff hỗ trợ: PAID -> CANCELLED;
 
     |PostgreSQL|
     :BEGIN TRANSACTION;\nSELECT Order FOR UPDATE;
@@ -314,5 +367,7 @@ else (Không)
         stop
     endif
 endif
+
+floating note right: Extended (ngoài MVP) — callback bất đồng bộ (dự phòng RSK-03):\ngateway gọi ngược POST /payments/callback → verifyCallback (HMAC-SHA256, constant-time, chống replay) TRƯỚC;\nhợp lệ thì tra Payment theo transactionReference và chuyển PENDING -> PAID qua assertTransition (FR-08);\nđơn đã PAID thì trả 200 ACK (idempotent theo eventId), không tự định nghĩa transition riêng.
 
 @enduml
