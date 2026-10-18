@@ -1,0 +1,282 @@
+@startuml
+' Sequence-01 — BrewLite: UC-08 Thanh toán đơn hàng (Task 2.2)
+' Truy vết: FR-05, FR-06, FR-07, FR-08, FR-09, FR-10, NFR-02, NFR-05
+' Nguồn: docs/requirements/use-case-checkout.md (UC-08, luồng chính + AF-1/AF-2 + EF-1..EF-5)
+' Bản kết xuất: docs/diagrams/sequence-checkout.svg
+title Sequence-01 — BrewLite: UC-08 Thanh toán đơn hàng (kèm bước tạo đơn FR-05)
+
+autonumber
+
+actor "Khách hàng" as C
+participant "Next.js Web (PWA)" as W
+
+box "NestJS API" #EEF3FF
+    participant "NestJS Controller\n(Guard + ValidationPipe)" as G
+    participant "OrdersService" as OS
+    participant "PaymentsService" as PS
+    participant "LoyaltyService" as LS
+end box
+
+participant "PostgreSQL\n(Prisma)" as DB
+participant "Cổng thanh toán\n(Mock Gateway)" as GW
+
+== Giai đoạn 0 — Giỏ hàng phía client (FR-02, FR-03) ==
+
+C -> W : Chọn món: 1 Size + 0..* Topping, qty 1..20
+activate W
+W -> W : Tính preview tổng tiền
+note right of W
+  FR-03: giỏ lưu ở localStorage.
+  Server bỏ qua total do client gửi.
+end note
+W --> C : Hiển thị giỏ + badge số lượng
+deactivate W
+
+== Giai đoạn 1 — Tạo đơn hàng: POST /orders (FR-05, FR-09, NFR-05) ==
+
+C -> W : Nhấn "Đặt hàng"
+activate W
+W -> G : POST /orders {items, promoCode?}\nAuthorization: Bearer <JWT>
+activate G
+G -> G : JWT Guard kiểm tra token\nValidationPipe + class-validator (qty 1..20)
+
+alt Token thiếu / hết hạn (EF-1)
+    G --> W : 401 Unauthorized
+    W --> C : Chuyển trang Đăng nhập, giữ nguyên giỏ\n(quay lại tiếp tục đặt đơn)
+else Token hợp lệ
+    note right of W
+      FR-09 - AF-1: mã khuyến mãi nhập ở giỏ hàng và gửi kèm
+      POST /orders (lúc TẠO ĐƠN, không phải lúc thanh toán).
+      Validate + khóa Promotion nằm trong transaction createOrder bên dưới;
+      total không thay đổi khi đơn đã PENDING.
+    end note
+    G -> OS : createOrder(userId, items, promoCode?)
+    activate OS
+    OS -> DB : BEGIN TRANSACTION
+    activate DB
+    OS -> DB : SELECT ... FOR UPDATE\n(kiểm tra và giữ tồn kho - NFR-05, RSK-01)
+    DB --> OS : stock khả dụng
+    alt Có món không đủ tồn kho
+        OS -> DB : ROLLBACK
+        OS --> G : 400 Bad Request + danh sách món hết hàng
+        G --> W : 400 Bad Request
+        W --> C : Hiển thị món hết hàng, yêu cầu cập nhật giỏ
+    else Đủ tồn kho
+        opt Có promoCode
+            OS -> DB : SELECT promotion FOR UPDATE\n(khóa row chống redeem đồng thời - FR-09)
+            DB --> OS : promotion (startAt/endAt, usageLimit, minimumOrderAmount)
+        end
+        alt Có promoCode nhưng KHÔNG hợp lệ (không tồn tại / hết hạn / hết lượt / chưa đủ minOrder)
+            OS -> DB : ROLLBACK
+            OS --> G : 400 Bad Request (nêu rõ lý do)
+            G --> W : 400 Bad Request
+            W --> C : Hiển thị lý do mã không hợp lệ
+        else Tồn kho hợp lệ và promo hợp lệ (hoặc không có promoCode)
+            opt Có promoCode
+                OS -> OS : discount = min(configuredDiscount, maxDiscount, subtotal)
+            end
+            OS -> OS : Tự tính lại subtotal / discount / total từ DB\n(không dùng total của client)
+            OS -> DB : UPDATE product (stock = stock - qty)\nINSERT order (PENDING) + order_item (snapshot giá)\nUPDATE promotion SET usageCount = usageCount + 1 (khi có mã, hàng đã khóa)
+            OS -> DB : COMMIT
+            OS --> G : orderId, orderCode, totalAmount
+            G --> W : 201 Created {orderId, orderCode, totalAmount, status = PENDING}
+            W --> C : Mở màn hình /orders/:id/payment
+            note right of W
+              FR-05: XÓA giỏ ngay khi tạo PENDING thành công.
+              Thanh toán lại dùng lại orderId, không dùng giỏ nữa.
+            end note
+        end
+    end
+    deactivate DB
+    deactivate OS
+end
+deactivate G
+deactivate W
+
+== Giai đoạn 2 — Thanh toán: POST /payments (FR-06, FR-08, NFR-05) ==
+
+C -> W : Chọn Ví / Thẻ, nhấn "Xác nhận thanh toán"
+activate W
+note right of W
+  AF-2: đổi phương thức chỉ đổi method,
+  không làm thay đổi amount của đơn.
+end note
+W -> W : Sinh Idempotency-Key (UUID v4)
+W -> G : POST /payments {orderId, method, amount}\nIdempotency-Key: <uuid>\nAuthorization: Bearer <JWT>
+activate G
+G -> G : JWT Guard + ValidationPipe
+
+alt Token thiếu / hết hạn (EF-1)
+    G --> W : 401 Unauthorized
+    W --> C : Chuyển trang Đăng nhập, lưu orderId\n(quay lại thanh toán ngay sau khi đăng nhập)
+else Token hợp lệ
+G -> PS : pay(userId, orderId, method, amount, idempotencyKey)
+activate PS
+
+PS -> DB : SELECT payment\nWHERE userId = ? AND orderId = ? AND idempotencyKey = ?
+activate DB
+DB --> PS : payment (cũ hoặc null)
+deactivate DB
+
+alt Idempotency-Key đã tồn tại - đang xử lý (EF-4)
+    PS --> G : 409 Conflict (giao dịch đang tiến hành)
+else Idempotency-Key đã tồn tại - đã kết thúc (EF-4)
+    note right of PS
+      KHÔNG gọi Cổng thanh toán lần thứ 2.
+    end note
+    PS --> G : Trả lại kết quả đã lưu (PAID / FAILED / EXPIRED)
+else Idempotency-Key mới - xử lý giao dịch
+    PS -> DB : BEGIN TRANSACTION;\nSELECT Order WHERE orderId = ? FOR UPDATE\n(khóa row đơn - nối tiếp mọi giao dịch của cùng đơn)
+    activate DB
+    DB --> PS : order (userId, totalAmount, status)\n+ khoản Payment đang PROCESSING (nếu có)
+    deactivate DB
+    alt order.userId ≠ jwt.userId
+        PS -> DB : ROLLBACK
+        PS --> G : 403 Forbidden
+    else amount ≠ order.totalAmount
+        PS -> DB : ROLLBACK
+        PS --> G : 400 Bad Request (amount không khớp)
+    else Tồn tại Payment khác cho đơn đang PROCESSING (chưa hết expiresAt) (EF-5)
+        PS -> DB : ROLLBACK
+        PS --> G : 409 Conflict\n"Đang xác minh giao dịch trước đó - không tạo giao dịch mới"
+        note right of PS
+          FR-06: chặn double-charge khi client sinh KEY MỚI
+          trong lúc giao dịch cũ còn PROCESSING (kể cả timeout
+          chưa đối soát xong). Guard nằm dưới khóa Order FOR UPDATE.
+        end note
+    else Đúng chủ sở hữu, đúng số tiền, không có giao dịch treo
+        opt order.status = PAYMENT_FAILED (thử lại lần trước - FR-08)
+            PS -> PS : assertTransition(PAYMENT_FAILED → PENDING)
+            PS -> DB : UPDATE order SET status = 'PENDING'
+        end
+        alt order.status ≠ PENDING (PAID / CANCELLED / PREPARING / READY / COMPLETED) (EF-2)
+            PS -> DB : ROLLBACK
+            PS --> G : 400 Bad Request\n"Đơn không còn ở trạng thái chờ thanh toán"
+        else Đơn đang PENDING - đủ điều kiện thanh toán
+            PS -> PS : Kiểm tra transition PENDING → PAID hợp lệ (FR-08)\n(chưa đổi trạng thái)
+            PS -> DB : INSERT payment (PROCESSING, userId, orderId, amount, method,\nidempotencyKey, expiresAt)\nUNIQUE(userId, orderId, idempotencyKey) = reservation TRƯỚC khi gọi gateway
+            PS -> DB : COMMIT
+            deactivate DB
+            note right of PS
+              FR-06/NFR-05: Payment LÀ bản ghi idempotency.
+              Reservation nằm dưới khóa SELECT Order FOR UPDATE, lưu trước
+              gateway nên request trùng key luôn thấy bản ghi (EF-4) và
+              request KHÁC KEY cho cùng đơn cũng bị chặn 409 (EF-5).
+            end note
+            PS -> GW : createPayment(orderId, amount, method)
+            activate GW
+            GW -> GW : Xử lý giao dịch mô phỏng
+            alt Cổng thanh toán thành công
+                GW --> PS : SUCCESS + transactionReference
+                deactivate GW
+                PS -> DB : BEGIN TRANSACTION
+                activate DB
+                PS -> DB : UPDATE payment SET status = PAID, transactionReference = ...\nUPDATE order: PENDING → PAID (assertTransition)
+                PS -> DB : COMMIT
+                deactivate DB
+                PS -> LS : earnPoints(userId, orderId, totalAmount)\n(sau commit - FR-10)
+                activate LS
+                LS -> DB : INSERT loyalty_transaction (type = EARN, points = totalAmount / 10.000)\nUPDATE user SET loyalty_points = loyalty_points + points
+                note right of LS
+                  Idempotent theo orderId:
+                  retry PAYMENT_FAILED → PAID
+                  không cộng điểm 2 lần.
+                end note
+                LS --> PS : ok
+                deactivate LS
+                PS --> G : 200 OK {orderCode, status = PAID}
+            else Cổng thanh toán báo lỗi XÁC ĐỊNH (EF-3)
+                deactivate GW
+                PS -> DB : BEGIN TRANSACTION
+                activate DB
+                PS -> DB : UPDATE payment SET status = FAILED\nUPDATE order: PENDING → PAYMENT_FAILED (assertTransition)
+                PS -> DB : COMMIT
+                deactivate DB
+                PS -> PS : Ghi log lỗi giao dịch (đã xác minh, không trừ tiền)
+                PS --> G : 400 / 502 (nguyên nhân thất bại)
+            else Timeout / kết quả KHÔNG xác định (EF-3, RSK-03)
+                deactivate GW
+                note right of PS
+                  KHÔNG kết luận FAILED ngay: gateway có thể đã trừ tiền
+                  dù response bị mất → dùng verifyResult()/callback để đối soát.
+                end note
+                PS -> GW : verifyResult(transactionReference / idempotencyKey)\n(hoặc chờ callback verifyCallback)
+                activate GW
+                GW --> PS : trạng thái giao dịch thật
+                deactivate GW
+                alt Đối soát xác nhận THÀNH CÔNG
+                    PS -> DB : BEGIN TRANSACTION;\nUPDATE payment -> PAID;\nUPDATE order: PENDING → PAID (assertTransition);\nCOMMIT
+                    activate DB
+                    deactivate DB
+                    PS -> LS : earnPoints(userId, orderId, totalAmount) (sau commit - FR-10)
+                    PS --> G : 200 OK {orderCode, status = PAID}
+                else Đối soát xác nhận THẤT BẠI
+                    PS -> DB : BEGIN TRANSACTION;\nUPDATE payment -> FAILED;\nUPDATE order: PENDING → PAYMENT_FAILED (assertTransition);\nCOMMIT
+                    activate DB
+                    deactivate DB
+                    PS --> G : 400 / 502 (thất bại đã xác minh)
+                else CHƯA xác minh được
+                    PS -> DB : Giữ payment = PROCESSING (kèm expiresAt);\nđơn vẫn PENDING
+                    activate DB
+                    deactivate DB
+                    PS --> G : 409 / 202 Accepted "Đang xác minh giao dịch"\nKHÔNG cho client thử lại bằng key mới
+                    note right of PS
+                      FR-06: tránh double-charge khi timeout.
+                      Job đối soát nền chốt PAID / PAYMENT_FAILED.
+                      Payment PROCESSING quá expiresAt & xác nhận chưa trừ tiền
+                      → markExpired() → EXPIRED (đơn vẫn PENDING, cho thử lại key mới).
+                    end note
+                end
+            end
+        end
+    end
+end
+
+    deactivate PS
+end
+
+G --> W : HTTP response (200 / 4xx / 5xx)
+deactivate G
+deactivate W
+
+== Giai đoạn 3 — Kết quả và theo dõi đơn (FR-07, FR-10) ==
+
+alt Đơn PAID
+    W --> C : Màn hình xác nhận /orders/:id/confirmation\n(#orderCode, trạng thái PAID, mời nhận nước)
+else Đơn PAYMENT_FAILED
+    W --> C : Thông báo lỗi + nút "Thử thanh toán lại"
+    note right of C
+      FR-08: PAYMENT_FAILED → PENDING → PAID.
+      Client sinh Idempotency-Key MỚI, tái dùng orderId.
+      Bước PAYMENT_FAILED → PENDING nằm ở Giai đoạn 2 (nhánh opt).
+    end note
+else Đang xác minh (409 / 202 khi timeout chưa đối soát)
+    W --> C : Thông báo "Đang xác minh giao dịch"\nKhông tạo giao dịch mới; chờ kết quả đối soát
+else Lỗi khác (401 / 403 / 400)
+    W --> C : Hiển thị thông báo lỗi tương ứng\n(không phát sinh giao dịch trừ tiền)
+end
+
+C -> W : Xem lịch sử và trạng thái đơn (UC-10)
+activate W
+W -> G : GET /orders/me\nAuthorization: Bearer <JWT>
+activate G
+G --> W : 200 OK (chỉ đơn của jwt.userId, mới nhất trước)
+deactivate G
+W --> C : Danh sách đơn + trạng thái
+deactivate W
+
+note over OS, DB
+  FR-08 (Extended scope - KDS/UC-11): Nhân viên quầy tiếp tục
+  PAID → PREPARING → READY → COMPLETED (xem Activity-01).
+end note
+
+note over GW, PS
+  Extended (ngoài MVP) — callback bất đồng bộ (dự phòng RSK-03):
+  nếu gateway gọi ngược POST /payments/callback, server gọi
+  verifyCallback(...) (HMAC-SHA256, constant-time, chống replay) TRƯỚC;
+  hợp lệ thì tra Payment theo transactionReference rồi chuyển
+  PENDING -> PAID qua assertTransition (FR-08); đơn đã PAID thì trả
+  200 ACK (idempotent theo eventId), không tự định nghĩa transition riêng.
+end note
+
+@enduml

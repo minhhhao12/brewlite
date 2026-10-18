@@ -1,5 +1,5 @@
 @startuml
-' Canonical ID khớp srs.md + use-case-checkout.md: UC-08 thanh toán, UC-09 khuyến mãi
+' Canonical ID khớp srs.md + use-case-checkout.md: UC-07 đặt đơn (base), UC-08 thanh toán, UC-09 khuyến mãi (extend UC-07)
 left to right direction
 
 
@@ -7,6 +7,8 @@ actor "Khách hàng" as Customer
 actor "Cổng thanh toán" as PaymentGateway
 
 rectangle "Hệ thống BrewLite - Thanh toán đơn hàng" {
+
+    usecase "Đặt đơn hàng" as UC_07
 
     usecase "Thanh toán đơn hàng" as UC_08
 
@@ -23,9 +25,15 @@ rectangle "Hệ thống BrewLite - Thanh toán đơn hàng" {
     usecase "Thông báo kết quả\nthanh toán" as UC_08e
 }
 
+Customer --> UC_07
 Customer --> UC_08
 
-UC_09 ..> UC_08 : <<extend>>
+UC_09 ..> UC_07 : <<extend>>
+note right of UC_09
+  FR-09 / AF-1: mã được nhập ở giỏ hàng và gửi kèm
+  POST /orders (UC-07), trước khi đơn chuyển PENDING;
+  không sửa total khi đơn đã PENDING.
+end note
 
 UC_08 ..> UC_08b : <<include>>
 UC_08 ..> UC_08c : <<include>>

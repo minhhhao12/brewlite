@@ -1,6 +1,6 @@
 @startuml
 ' Canonical IDs khớp srs.md: UC-01..UC-12
-' Các node phụ hậu tố "a" (UC-04a, UC-08a, UC-12a) là sub-step, không tách khỏi FR gốc.
+' Các node phụ hậu tố "a" (UC-04a, UC-08a) là sub-step, không tách khỏi FR gốc.
 left to right direction
 skinparam packageStyle rectangle
 skinparam ranksep 70
@@ -32,7 +32,6 @@ usecase "Thanh toán online" as UC_08a
 usecase "Xem lịch sử & trạng thái đơn" as UC_10
 usecase "Quản lý trạng thái đơn" as UC_11
 usecase "Quản lý sản phẩm/menu" as UC_12
-usecase "Quản lý khuyến mãi" as UC_12a
 }
 
 UC_01 -[hidden]down- UC_04
@@ -40,7 +39,6 @@ UC_04 -[hidden]down- UC_05
 UC_05 -[hidden]down- UC_07
 UC_10 -[hidden]down- UC_11
 UC_11 -[hidden]down- UC_12
-UC_12 -[hidden]down- UC_12a
 
 Customer --> UC_01
 Customer --> UC_04
@@ -52,12 +50,11 @@ Customer --> UC_08
 UC_02 .left.> UC_01 : <<extend>>
 UC_03 .left.> UC_02 : <<extend>>
 UC_04a .left.> UC_02 : <<extend>>
-UC_09 .left.> UC_08 : <<extend>>
-UC_08a .left.> UC_08 : <<include>>
+UC_09 .left.> UC_07 : <<extend>>
+UC_08 ..> UC_08a : <<include>>
 UC_08a --> PaymentGateway
 
 Staff --> UC_06
 Staff -left-> UC_11
 Staff -left-> UC_12
-Staff -left-> UC_12a
 @enduml
