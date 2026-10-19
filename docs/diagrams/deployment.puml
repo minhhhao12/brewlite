@@ -1,0 +1,127 @@
+@startuml
+' Deployment-01 — BrewLite: Production, CI/CD và Local (Task 3.2)
+' Nguồn: docs/architecture/architecture.md, docs/deployment.md, ADR-006
+' Kết xuất: docs/diagrams/deployment.svg
+' Lưu ý: production chưa được tạo; sơ đồ là kế hoạch triển khai đã chốt.
+title Deployment-01 — BrewLite: Production, CI/CD và Local
+
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam componentStyle rectangle
+skinparam linetype ortho
+skinparam nodesep 35
+skinparam ranksep 45
+skinparam defaultFontSize 12
+skinparam rectangle {
+  BackgroundColor #FFFFFF
+  BorderColor #555555
+}
+
+actor "Khách hàng\n(Customer)" as Customer
+
+node "User Device\n(Browser / PWA)" as Device {
+  artifact "PWA Shell\nmanifest · service worker · app shell\ncart state (localStorage)" as PwaShell
+}
+
+rectangle "PRODUCTION" as Prod #F7F9FF {
+  node "Render Web Service\n(Next.js Web)" as RenderWeb {
+    artifact "Next.js Web (PWA)\nDocker image từ GHCR\nHTTPS 443 · container 3000\nNEXT_PUBLIC_API_URL" as Web
+  }
+
+  node "Render Web Service\n(NestJS API Container)" as RenderApi {
+    artifact "NestJS API\nDocker image từ GHCR\ncontainer port 3000" as Api
+    component "Mock Payment Gateway\n(in-process adapter)" as MockPay
+    component "Health endpoints\nGET /health\nGET /health/ready" as Health
+
+    Api --> MockPay : PaymentGateway port\n(createPayment / verifyResult)
+    Api --> Health : liveness / readiness
+  }
+
+  node "Render Managed PostgreSQL\n(Persistent storage)" as ManagedDb {
+    database "PostgreSQL Database\nschema public\ninternal URL + SSL" as Db
+  }
+}
+
+rectangle "CI / CD — GitHub Actions" as CICD #FFF8F0 {
+  node "GitHub Actions\n(CI/CD)" as Actions {
+    artifact "ci.yml / cd.yml\nInstall → Lint → Test → Build\nDocker build + push + smoke test" as Pipeline
+  }
+
+  node "GitHub Container Registry\n(GHCR)" as Registry {
+    artifact "ghcr.io/<owner>/<repo>/web\nghcr.io/<owner>/<repo>/api\n:sha-<commit> · :semver · :latest" as Image
+  }
+}
+
+rectangle "LOCAL — Developer Machine" as Local #F2FBF4 {
+  node "Docker Compose" as Compose {
+    artifact "web (Next.js)\napi (NestJS)\ndb (PostgreSQL)\nvolume: pgdata" as ComposeArtifact
+  }
+}
+
+' ===== Luồng production =====
+Customer --> Device : sử dụng
+Device --> RenderWeb : HTTPS 443
+Device --> RenderApi : HTTPS 443\nREST/JSON + JWT
+Web --> RenderApi : HTTPS\nNEXT_PUBLIC_API_URL
+Api --> Db : PostgreSQL 5432\ninternal URL + SSL
+
+' ===== Luồng CI/CD =====
+Local ..> Actions : git push / pull request
+Actions --> Registry : push web/API images (HTTPS)
+Registry --> RenderWeb : pull web image (HTTPS)
+Registry --> RenderApi : pull API image (HTTPS)
+Actions ..> RenderWeb : deploy hook / Render API
+Actions ..> RenderApi : deploy hook / Render API
+Actions ..> RenderApi : smoke test GET /health
+
+' ===== Ghi chú bảo mật / vận hành =====
+note right of RenderApi
+  **Secret / environment**
+  DATABASE_URL · JWT_SECRET · CORS_ORIGIN
+  PAYMENT_PROVIDER · RUN_MIGRATIONS
+  Không public DB; chỉ internal URL + SSL.
+  Log JSON → Render Logs.
+end note
+
+note right of RenderWeb
+  **Web environment**
+  NEXT_PUBLIC_API_URL (inline lúc build)
+  HTTPS + static asset/cache theo Render.
+  Không chứa secret trong bundle.
+end note
+
+note bottom of Local
+  Local dùng HTTP và .env riêng.
+  Không dùng chung DB/secret với production.
+end note
+
+note bottom of CICD
+  Quality gate: PR fail lint/test/build → chặn merge.
+  CD: image tag SHA/semver → GHCR → Render → migrate → smoke test.
+  Rollback: image tag cũ + DB restore backup.
+end note
+
+legend right
+  **Giao thức / cổng**
+  - Public: HTTPS 443 (Render Web, Render API)
+  - Container web/API: HTTP 3000 (Render inject PORT)
+  - PostgreSQL: 5432, chỉ private network + SSL
+  - Gateway mock: không mở cổng (in-process)
+
+  **Ranh giới môi trường**
+  - Local: Docker Compose web + api + db
+  - CI: GitHub Actions + GHCR
+  - Production: Render Web + Render API + Render Postgres
+
+  **Bảo mật / vận hành**
+  - Secrets: Render Environment + GitHub Secrets
+  - Health: /health, /health/ready
+  - Log: JSON stdout → Render Logs
+
+  **Trạng thái**
+  - Production: KẾ HOẠCH (chưa tạo hạ tầng)
+  - CI/CD: thiết kế (Task 4.4 / 5.3)
+  - Local: Docker Compose (Task 4.1)
+endlegend
+
+@enduml

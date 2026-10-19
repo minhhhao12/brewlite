@@ -25,11 +25,11 @@ Tài liệu này theo dõi chuỗi truy vết từ Yêu cầu (Task 1) $\rightar
 
 | Mã yêu cầu | Tên yêu cầu | Use-case / User Story | Thiết kế / Sơ đồ | Code / API | Test Case | Trạng thái |
 | :---: | :--- | :--- | :--- | :--- | :--- | :---: |
-| **NFR-01** | Hiệu năng phản hồi (`GET /products` < 500ms, đặt+thanh toán < 1000ms) | Toàn hệ thống | Deployment-01 | Toàn bộ API NestJS | PERF-T01 | Sẵn sàng (Task 1) |
-| **NFR-02** | Bảo mật: Bcrypt, JWT Guard, RBAC, `class-validator` | UC-05, UC-06, UC-07, UC-08 | Activity-01, Sequence-01, Class-01 (`User`, `UserRole`) | Guards, Pipes, `.env` + `.gitignore` | SEC-T01 | Sẵn sàng (Task 1) |
-| **NFR-03** | Tính khả dụng Mobile-First & PWA | Toàn hệ thống | UI Wireframe | Frontend Next.js PWA (Manifest, icon) | UI-E2E-T01 | Sẵn sàng (Task 1) |
-| **NFR-04** | CI/CD Quality Gate & Docker Deploy | Toàn hệ thống | Deployment-01 | GitHub Actions, Dockerfile, `docker-compose.yml` | CI-T01 | Sẵn sàng (Task 1) |
-| **NFR-05** | Toàn vẹn dữ liệu & Concurrency Lock, Idempotency | UC-07, UC-08 | Activity-01, Sequence-01, Class-01 (`Product.stock`, `Payment.idempotencyKey`) | Transaction + `SELECT FOR UPDATE` | CONC-T01, INT-T03 | Sẵn sàng (Task 1) |
+| **NFR-01** | Hiệu năng phản hồi (`GET /products` < 500ms, đặt+thanh toán < 1000ms) | Toàn hệ thống | Architecture-01 §7/§10, Deployment-01 | Toàn bộ API NestJS | PERF-T01 | Sẵn sàng (Task 1) |
+| **NFR-02** | Bảo mật: Bcrypt, JWT Guard, RBAC, `class-validator` | UC-05, UC-06, UC-07, UC-08 | Activity-01, Sequence-01, Class-01 (`User`, `UserRole`), Architecture-01 §9, ADR-008 | Guards, Pipes, `.env` + `.gitignore` | SEC-T01 | Sẵn sàng (Task 1) |
+| **NFR-03** | Tính khả dụng Mobile-First & PWA | Toàn hệ thống | Architecture-01 §6, ADR-003, ADR-009 | Frontend Next.js PWA (Manifest, icon) | UI-E2E-T01 | Sẵn sàng (Task 1) |
+| **NFR-04** | CI/CD Quality Gate & Docker Deploy | Toàn hệ thống | Architecture-01 §11, ADR-001, ADR-006, Deployment-01 | GitHub Actions, Dockerfile, `docker-compose.yml` | CI-T01 | Sẵn sàng (Task 1) |
+| **NFR-05** | Toàn vẹn dữ liệu & Concurrency Lock, Idempotency | UC-07, UC-08 | Activity-01, Sequence-01, Class-01 (`Product.stock`, `Payment.idempotencyKey`), Architecture-01 §7/§8, ADR-004, ADR-005 | Transaction + `SELECT FOR UPDATE` | CONC-T01, INT-T03 | Sẵn sàng (Task 1) |
 
 ## 3. Quy ước mã tạo phẩm thiết kế (Task 2 & 3)
 
@@ -37,8 +37,30 @@ Các mã sơ đồ dùng trong cột "Thiết kế / Sơ đồ" ở trên trỏ 
 
 | Mã sơ đồ | Tệp nguồn | Bản kết xuất | Trạng thái |
 | :--- | :--- | :--- | :--- |
-| Activity-01 | `docs/diagrams/activity-checkout.puml` | `docs/diagrams/activity-checkout.svg` | puml đã cập nhật; **cần re-export SVG** |
-| Sequence-01 | `docs/diagrams/sequence-checkout.puml` | `docs/diagrams/sequence-checkout.svg` | puml đã cập nhật; **cần re-export SVG** |
-| Class-01 | `docs/diagrams/class-diagram.puml` | `docs/diagrams/class-diagram.svg` | puml đã cập nhật; **cần re-export SVG** |
-| Deployment-01 | `docs/deployment.md` + `docs/diagrams/deployment.puml` | `docs/diagrams/deployment.svg` | Chưa thực hiện (Task 3.2) |
+| Activity-01 | `docs/diagrams/activity-checkout.puml` | `docs/diagrams/activity-checkout.svg` | Đã có (Task 2) |
+| Sequence-01 | `docs/diagrams/sequence-checkout.puml` | `docs/diagrams/sequence-checkout.svg` | Đã có (Task 2) |
+| Class-01 | `docs/diagrams/class-diagram.puml` | `docs/diagrams/class-diagram.svg` | Đã có (Task 2) |
+| Architecture-01 | `docs/architecture/architecture.md` | — | Đã có (Task 3.1) |
+| ADR-001..009 | `docs/architecture/adr/` | — | Đã có (Task 3.1) |
+| Deployment-01 | `docs/deployment.md` + `docs/diagrams/deployment.puml` | `docs/diagrams/deployment.svg` | Đã có (Task 3.2) |
+
+## 4. Truy vết kiến trúc Task 3
+
+Bảng dưới đây nối yêu cầu Task 1 với quyết định kiến trúc/ADR và node triển khai Task 3. Mã nguồn/test tương ứng sẽ được hiện thực ở Task 4–5 và cập nhật lại trong các cột "Code / API" và "Test Case" ở §1–§2.
+
+| Mã yêu cầu | Thành phần kiến trúc | ADR / tài liệu | Node deployment |
+| :--- | :--- | :--- | :--- |
+| FR-01, FR-02, FR-03 | Next.js menu/chi tiết/cart, `ProductsModule`, `PricingPolicy` | ADR-003, ADR-009, `architecture.md` §4/§6 | Render Web (Next.js) → Render API → PostgreSQL |
+| FR-04 | `AuthModule`, `UsersModule`, JWT Guard/RolesGuard | ADR-008 | Render API → PostgreSQL |
+| FR-05, FR-08 | `OrdersModule`, `Order.assertTransition()` (`OrderStateMachine`), transaction + `FOR UPDATE` | ADR-002, ADR-004 | Render API → PostgreSQL |
+| FR-06 | `PaymentsModule`, `PaymentGateway`, `MockPaymentGateway`, reconciliation job | ADR-005, `architecture.md` §8 | Render API (in-process mock) → PostgreSQL |
+| FR-07 | `OrdersModule`, `GET /orders/me`, Next.js history | ADR-003, ADR-004 | Render Web (Next.js) → Render API → PostgreSQL |
+| FR-09 | `PromotionsModule`, `PromotionPolicy`, khóa row | ADR-004 | Render API → PostgreSQL |
+| FR-10 | `LoyaltyModule`, `LoyaltyTransaction`, post-commit hook (idempotent) | ADR-002, ADR-004 | Render API → PostgreSQL |
+| FR-14 | `HealthModule`, `/health`, `/health/ready`, migration/seed | ADR-007, ADR-004 | Render health check / Docker / CI smoke |
+| NFR-01 | Index DB, select tối ưu, PWA cache, 1 API instance | ADR-004, ADR-006 | Render + PostgreSQL |
+| NFR-02 | Bcrypt, JWT/Roles Guard, ValidationPipe, secret ngoài repo | ADR-007, ADR-008 | Render/GitHub Secrets |
+| NFR-03 | Next.js mobile-first, manifest, service worker | ADR-003, ADR-009 | User Device → Render Web (Next.js) |
+| NFR-04 | Docker, GitHub Actions, GHCR, Render, health/rollback | ADR-001, ADR-006, `deployment.md` | GitHub Actions → GHCR → Render |
+| NFR-05 | Transaction, `SELECT FOR UPDATE`, UNIQUE, state machine | ADR-004, ADR-005 | Render API → PostgreSQL |
 
