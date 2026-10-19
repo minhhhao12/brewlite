@@ -1,0 +1,79 @@
+@startuml
+' BrewLite – Deployment-01 (Task 3.2)
+' Nguồn: docs/architecture/architecture.md, apps/api/Dockerfile, docker-compose.yml, .github/workflows/ci.yml
+' Render: plantuml -tsvg docs/architecture/diagrams/deployment.puml
+title BrewLite – Deployment diagram (Production, CI, Local)
+
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam linetype ortho
+skinparam componentStyle rectangle
+
+actor "Customer\n(Khách hàng)" as Customer
+
+rectangle "PRODUCTION" {
+  node "User Device (Browser/PWA)" as UserDevice {
+    artifact "PWA Shell (browser cache)\nmanifest · service worker · app shell" as PwaShell
+  }
+
+  node "Vercel (Next.js Web + CDN)" as Vercel {
+    artifact "Next.js Web (PWA)\nNext.js 16 · HTTPS 443" as WebArtifact
+  }
+
+  node "Render Web Service (NestJS API Container)" as RenderApi {
+    artifact "NestJS API\nDocker image từ GHCR · port 3000" as ApiArtifact
+    component "Mock Payment Provider" as MockPay
+    component "Health endpoints\n/health · /health/ready" as HealthArtifact
+    ApiArtifact --> MockPay
+    ApiArtifact --> HealthArtifact
+  }
+
+  node "Render Managed PostgreSQL\n(Persistent storage)" as ManagedDb {
+    database "PostgreSQL Database\nPostgreSQL · schema public" as Database
+  }
+}
+
+rectangle "CI – GitHub Actions" {
+  node "GitHub Actions (CI/CD)" as CI {
+    artifact "ci.yml\npnpm lint · test · build\nDocker build + push" as CiArtifact
+  }
+  node "GitHub Container Registry (GHCR)" as Registry {
+    artifact "ghcr.io/<owner>/<repo>/api\n:sha-<commit> · :latest" as ImageArtifact
+  }
+}
+
+rectangle "LOCAL – Developer Machine" {
+  node "Developer Machine (Docker Compose)" as Local {
+    artifact "docker-compose.yml\nweb:3001 · api:3000 · db:5432\nPostgreSQL volume: pgdata" as ComposeArtifact
+  }
+}
+
+Customer --> UserDevice : sử dụng
+UserDevice --> Vercel : HTTPS 443
+UserDevice --> RenderApi : HTTPS 443\nREST/JSON + JWT
+ApiArtifact --> Database : PostgreSQL 5432\ninternal URL + SSL
+CI --> Registry : push image (HTTPS)
+Registry --> RenderApi : pull image (HTTPS)
+CI ..> RenderApi : deploy hook (HTTPS)
+Local ..> CI : git push / pull request
+
+legend right
+  **Cổng / giao thức**
+  HTTPS công khai: 443 · API container: 3000 (PORT)
+  PostgreSQL: 5432, chỉ internal URL + SSL
+  **Secret / environment**
+  Render Dashboard: DATABASE_URL, JWT_SECRET, CORS_ORIGIN, ...
+  Vercel: NEXT_PUBLIC_API_URL (không phải secret)
+  GitHub Secrets: RENDER_DEPLOY_HOOK_URL, API_HEALTH_URL
+  Local: .env (không commit); chỉ dùng .env.example
+  **Health check / log**
+  Render health check: GET /health/ready (tần suất theo dashboard)
+  Docker HEALTHCHECK: GET /health mỗi 30 giây
+  Logs: Render Dashboard · Vercel Dashboard · GitHub Actions · docker compose logs
+  **Trạng thái**
+  Production: KẾ HOẠCH (chưa deploy)
+  CI: workflow có trong repo, chưa chạy trên GitHub
+  Local: đã verify docker compose build/up
+endlegend
+
+@enduml

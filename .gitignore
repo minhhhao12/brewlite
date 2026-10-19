@@ -1,28 +1,130 @@
-# Nestjs specific
-/dist
-/node_modules
-/build
-/tmp
+# ==========================================
+# Operating System Files (macOS & Windows)
+# ==========================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Trashes
 
-# Logs
-logs
-*.log
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msm
+*.msp
+*.lnk
+
+# ==========================================
+# Node.js & Dependencies
+# ==========================================
+node_modules/
 npm-debug.log*
-pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
+.pnpm-debug.log*
+package-lock.json
+# Bỏ comment dòng bên dưới nếu dự án dùng Yarn / pnpm Lockfile thay vì Lockfile cố định
+# yarn.lock
+# pnpm-lock.yaml
 
-# dotenv environment variable files
+# Local environment variables (Bảo mật thông tin API key, DB password, secret key)
 .env
-.env.development
-.env.test
-.env.production
+.env.*
+!.env.example
 
-# temp directory
-.temp
-.tmp
-.vscode
-.DS_Store
+# Cache & Temporary files
+.eslintcache
+.stylelintcache
+*.tsbuildinfo
+.node_repl_history
+
+# ==========================================
+# Next.js (Frontend)
+# ==========================================
+.next/
+out/
+build/
+dist/
+
+# Next.js Bundle Analyzer
+.next-boost/
+
+# Vercel
+.vercel
+
+# Serverless / Next.js Telemetry
+.telemetry
+
+# ==========================================
+# NestJS (Backend)
+# ==========================================
+/dist
+/build
+/coverage
+*.pid
+*.seed
+*.pid.lock
+
+# NestJS Framework CLI cache
+.nest/
+
+# ==========================================
+# PostgreSQL & Database local files
+# ==========================================
+# Dữ liệu Postgres mount ra máy host (nếu bạn không dùng Docker Named Volumes)
+pgdata/
+postgres-data/
+*.sql
+*.sqlite
+*.dump
+
+# Prisma / TypeORM / Drizzle generated files & migration logs (nếu có)
+/prisma/migrations/*.sql.bak
+# Migration SQL của Prisma phải được commit
+!apps/api/prisma/migrations/**/*.sql
+
+# ==========================================
+# Docker & Container Files
+# ==========================================
+# Ngoại trừ các Dockerfile và docker-compose tiêu chuẩn
+# (giữ .dockerignore trong repo để Docker build nhanh và nhất quán)
+
+# Temporary Docker volume mounts
+.docker/
+
+# ==========================================
+# IDEs & Code Editors
+# ==========================================
+# VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# WebStorm / JetBrains IDEs
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# Visual Studio / SubLime / Vim
+*.suo
+*.user
+*.userosv
+*.sln.docstates
+*.swp
+*.swo
+*~
+# Tài liệu PDF gốc của môn học – không đưa vào repo
 Assignment2-BrewLite.pdf
 BrewLite-CongNghePhanMem.pdf

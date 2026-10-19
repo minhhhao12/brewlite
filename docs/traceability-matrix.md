@@ -40,5 +40,5 @@ Các mã sơ đồ dùng trong cột "Thiết kế / Sơ đồ" ở trên trỏ 
 | Activity-01 | `docs/diagrams/activity-checkout.puml` | `docs/diagrams/activity-checkout.svg` | puml đã cập nhật; **cần re-export SVG** |
 | Sequence-01 | `docs/diagrams/sequence-checkout.puml` | `docs/diagrams/sequence-checkout.svg` | puml đã cập nhật; **cần re-export SVG** |
 | Class-01 | `docs/diagrams/class-diagram.puml` | `docs/diagrams/class-diagram.svg` | puml đã cập nhật; **cần re-export SVG** |
-| Deployment-01 | `docs/deployment.md` + `docs/diagrams/deployment.puml` | `docs/diagrams/deployment.svg` | Chưa thực hiện (Task 3.2) |
+| Deployment-01 | `docs/architecture/deployment.md` + `docs/architecture/diagrams/deployment.puml` | `docs/architecture/diagrams/deployment.svg` | hạ tầng production chưa deploy |
 

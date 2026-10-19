@@ -93,10 +93,6 @@ else (Có)
             stop
         else (Có)
             :Tính discount chính thức;\ndiscount = min(configuredDiscount,\nmaxDiscount, subtotal);\ntotal = max(0, subtotal - discount);
-            note right
-              FR-09: usageCount tăng trong transaction tạo đơn.
-              SRS không quy định hoàn lượt khi đơn bị hủy — cần xác nhận.
-            end note
         endif
 
     else (Không)
