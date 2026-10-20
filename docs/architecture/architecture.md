@@ -8,7 +8,7 @@
 - **Tài liệu triển khai**: [`deployment.md`](../deployment.md), [`deployment.puml`](../diagrams/deployment.puml)
 - **Bộ quyết định kiến trúc**: [`adr/README.md`](./adr/README.md)
 
-> **Trạng thái hiện tại của repository**: Task 1 và Task 2 đã hoàn thành phần đặc tả, mô hình hóa và sơ đồ. Thư mục `apps/web`, `apps/api` và các cấu hình CI/CD sẽ được hiện thực ở Task 4–5 theo kiến trúc trong tài liệu này. Vì vậy, các đường dẫn mã nguồn dưới đây là **vị trí quy ước của thiết kế**, không phải khẳng định mã đã tồn tại. Trạng thái từng thành phần được ghi rõ ở §13.
+> **Trạng thái hiện tại của repository**: Task 1–3 đã hoàn thành phần đặc tả, mô hình hóa, kiến trúc và deployment diagram. CV02–CV06 đã hiện thực khung `apps/api` (NestJS, Prisma schema/migration/seed, `GET /products`) và `apps/web` (Next.js layout, menu, giỏ hàng client). Các phần auth/order/payment, CI/CD và production sẽ tiếp tục ở các task sau. Trạng thái từng thành phần được ghi rõ ở §13.
 
 ---
 
@@ -481,7 +481,7 @@ COMMIT
 - **Forward-only**: không tự động down migration; rollback code bằng image cũ, rollback dữ liệu bằng backup/restore.
 - **Một instance migrate**: MVP chạy một API instance để tránh hai container migrate đồng thời; khi scale, chuyển migration sang release job/pre-deploy riêng.
 - **Backup**: Render Managed Postgres có backup theo gói; kiểm tra và ghi lại RPO/RTO thực tế trước khi Task 5.4.
-- **Seed**: Product mẫu (>= 100 bản ghi để đo NFR-01), size S/M/L, topping, promotion mẫu; không seed secret/tài khoản production ngoài tài khoản demo có mật khẩu được đổi.
+- **Seed**: Product mẫu (>= 100 bản ghi để đo NFR-01), size S/M/L, topping, promotion mẫu; không seed secret/tài khoản production ngoài tài khoản demo có mật khẩu được đổi. Seed CV06 hiện có 12 món; khi đo NFR-01 có thể mở rộng lên >= 100 bằng script seed.
 
 ### 7.5. Hiệu năng và khả năng mở rộng
 
@@ -696,8 +696,8 @@ Chi tiết và runbook ở [`deployment.md`](../deployment.md); sơ đồ UML �
 | Task 2: Activity/Sequence/Class | **Đã có** | `docs/diagrams/*.puml` + SVG |
 | Task 3.1: kiến trúc + ADR | **Đã có trong tài liệu này** | Task 3.1 |
 | Task 3.2: deployment diagram + deployment.md | **Đã có** | `docs/diagrams/deployment.puml`, `docs/deployment.md` |
-| Source web/api | **Kế hoạch Task 4–5** | `apps/web`, `apps/api` hiện chưa có mã |
-| CI/CD, Docker, production URL | **Kế hoạch Task 4–5** | Sẽ cập nhật trạng thái khi triển khai |
+| Source web/api | **Đã có khung CV02–CV06** | `apps/web`, `apps/api`; menu, schema, migration, seed |
+| CI/CD, Dockerfile API/Web, production URL | **Kế hoạch Task 4–5** | Docker Compose PostgreSQL local đã có; CI/CD và production sẽ bổ sung |
 
 ---
 

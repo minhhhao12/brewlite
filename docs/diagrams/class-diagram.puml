@@ -44,10 +44,8 @@ enum PaymentMethod {
 
 enum PaymentStatus {
     INITIATED
-    PROCESSING
     PAID
     FAILED
-    EXPIRED
 }
 
 enum DiscountType {
