@@ -1,15 +1,9 @@
-'use client';
-
 import Image from 'next/image';
 import Link from 'next/link';
-import { useCartStore } from '@/lib/cart-store';
 import { formatVnd } from '@/lib/format';
 import type { Product } from '@/lib/types';
 
 export function ProductCard({ product }: { product: Product }) {
-  const addItem = useCartStore((state) => state.addItem);
-  const sizes = product.options.filter((option) => option.type === 'SIZE');
-  const defaultSize = sizes[0] ?? null;
   const soldOut = product.stock <= 0;
 
   return (
@@ -50,14 +44,23 @@ export function ProductCard({ product }: { product: Product }) {
               {soldOut ? 'Tạm hết' : `Còn ${product.stock} phần`}
             </p>
           </div>
-          <button
-            type="button"
-            disabled={soldOut}
-            onClick={() => addItem(product, defaultSize, [], 1)}
-            className="rounded-full bg-coffee-800 px-4 py-2 text-sm font-semibold text-cream transition hover:bg-coffee-700 disabled:cursor-not-allowed disabled:bg-coffee-200 disabled:text-coffee-500"
-          >
-            Thêm vào giỏ
-          </button>
+          {soldOut ? (
+            <button
+              type="button"
+              disabled
+              className="cursor-not-allowed rounded-full bg-coffee-200 px-5 py-2 text-sm font-semibold text-coffee-500"
+            >
+              Hết hàng
+            </button>
+          ) : (
+            <Link
+              href={`/products/${product.id}`}
+              aria-label={`Mua ${product.name}`}
+              className="rounded-full bg-coffee-800 px-5 py-2 text-sm font-semibold text-cream transition hover:bg-coffee-700"
+            >
+              Mua
+            </Link>
+          )}
         </div>
       </div>
     </article>
