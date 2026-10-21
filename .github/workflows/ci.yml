@@ -11,32 +11,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout source code
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Thiết lập môi trường Node.js
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.14.0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm' # hoặc 'pnpm' / 'yarn' tùy package manager của nhóm
+          cache: 'pnpm'
+          cache-dependency-path: pnpm-lock.yaml
 
-      # 3. Install - Cài đặt dependencies
-      - name: Install Dependencies
-        run: npm ci
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
-      # 4. Lint - Kiểm tra chuẩn mã nguồn (Code Style & Syntax)
       - name: Run Linter
-        run: |
-          npm run lint --workspaces --if-present
+        run: pnpm run lint
 
-      # 5. Unit Test - Chạy kiểm thử đơn vị
       - name: Run Unit Tests
-        run: |
-          npm run test --workspaces --if-present
+        run: pnpm run test
 
-      # 6. Build - Đóng gói ứng dụng (Next.js & NestJS)
       - name: Build Applications
-        run: |
-          npm run build --workspaces --if-present
+        run: pnpm run build
