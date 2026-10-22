@@ -1,4 +1,9 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { OptionType, OrderStatus, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -21,6 +26,8 @@ describe('OrdersService (FR-05, FR-08, FR-09, NFR-05)', () => {
       findMany: jest.Mock;
       findFirst: jest.Mock;
       update: jest.Mock;
+      updateMany: jest.Mock;
+      findUniqueOrThrow: jest.Mock;
     };
   };
 
@@ -73,10 +80,7 @@ describe('OrdersService (FR-05, FR-08, FR-09, NFR-05)', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        OrdersService,
-        { provide: PrismaService, useValue: prisma },
-      ],
+      providers: [OrdersService, { provide: PrismaService, useValue: prisma }],
     }).compile();
 
     service = module.get<OrdersService>(OrdersService);
@@ -204,6 +208,7 @@ describe('OrdersService (FR-05, FR-08, FR-09, NFR-05)', () => {
       prisma.order.update.mockResolvedValue({
         ...pendingOrder,
         status: OrderStatus.CANCELLED,
+        items: [],
       });
 
       const cancelled = await service.cancelOrder('order-1', 'user-1');
@@ -213,6 +218,28 @@ describe('OrdersService (FR-05, FR-08, FR-09, NFR-05)', () => {
         where: { productId: mockProduct.productId },
         data: { stock: { increment: 3 } },
       });
+    });
+    it('khách không được huỷ đơn đã thanh toán', async () => {
+      prisma.order.findFirst.mockResolvedValue({
+        orderId: 'order-1',
+        userId: 'user-1',
+        status: OrderStatus.PAID,
+        items: [],
+      });
+      await except(service.cancelOrder('order-1', 'user-1')).rejects.toThrow(ForbiddenException);
+      except(prisma.product.update).not.toHaveBeenCalled();
+    });
+    it('không hoàn kho khi đơn vừa bị request khác hủy (count = 0)', async () => {
+      prisma.order.findFirst.mockResolvedValue({
+        orderId: 'order-1',
+        userId: 'user-1',
+        status: OrderStatus.PENDING,
+        items: [{ productId: mockProduct.productId, quantity: 3 }],
+      });
+      prisma.order.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.cancelOrder('order-1', 'user-1')).rejects.toThrow(ConflictException);
+      expect(prisma.product.update).not.toHaveBeenCalled();
     });
 
     it('chặn người dùng khác hủy đơn hàng không thuộc về mình', async () => {
@@ -233,9 +260,9 @@ describe('OrdersService (FR-05, FR-08, FR-09, NFR-05)', () => {
     it('báo lỗi NotFoundException khi đơn hàng không tồn tại', async () => {
       prisma.order.findFirst.mockResolvedValue(null);
 
-      await expect(
-        service.cancelOrder('non-existent-order', 'user-1'),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.cancelOrder('non-existent-order', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
