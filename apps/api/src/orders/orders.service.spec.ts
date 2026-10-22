@@ -76,6 +76,8 @@ describe('OrdersService (FR-05, FR-08, FR-09, NFR-05)', () => {
         findMany: jest.fn(),
         findFirst: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn(),
+        findUniqueOrThrow: jest.fn(),
       },
     };
 
@@ -205,7 +207,8 @@ describe('OrdersService (FR-05, FR-08, FR-09, NFR-05)', () => {
       };
 
       prisma.order.findFirst.mockResolvedValue(pendingOrder);
-      prisma.order.update.mockResolvedValue({
+      prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      prisma.order.findUniqueOrThrow.mockResolvedValue({
         ...pendingOrder,
         status: OrderStatus.CANCELLED,
         items: [],
@@ -226,8 +229,8 @@ describe('OrdersService (FR-05, FR-08, FR-09, NFR-05)', () => {
         status: OrderStatus.PAID,
         items: [],
       });
-      await except(service.cancelOrder('order-1', 'user-1')).rejects.toThrow(ForbiddenException);
-      except(prisma.product.update).not.toHaveBeenCalled();
+      await expect(service.cancelOrder('order-1', 'user-1')).rejects.toThrow(ForbiddenException);
+      expect(prisma.product.update).not.toHaveBeenCalled();
     });
     it('không hoàn kho khi đơn vừa bị request khác hủy (count = 0)', async () => {
       prisma.order.findFirst.mockResolvedValue({
