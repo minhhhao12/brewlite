@@ -1,11 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { selectCartCount, useCartStore } from '@/lib/cart-store';
+import { selectCartCount, useCartHydrated, useCartStore } from '@/lib/cart-store';
 
 export function SiteHeader() {
   const itemCount = useCartStore(selectCartCount);
-  const hasHydrated = useCartStore((state) => state.hasHydrated);
+  const hasHydrated = useCartHydrated();
 
   return (
     <header className="sticky top-0 z-40 border-b border-coffee-100/80 bg-cream/90 backdrop-blur">
@@ -27,11 +27,7 @@ export function SiteHeader() {
           <Link
             href="/cart"
             className="relative grid h-10 w-10 place-items-center rounded-full bg-coffee-800 text-cream transition hover:bg-coffee-700"
-            aria-label={
-              hasHydrated && itemCount > 0
-                ? `Giỏ hàng, ${itemCount} món`
-                : 'Giỏ hàng'
-            }
+            aria-label={hasHydrated && itemCount > 0 ? `Giỏ hàng, ${itemCount} món` : 'Giỏ hàng'}
           >
             <svg
               aria-hidden="true"
@@ -48,7 +44,10 @@ export function SiteHeader() {
               <circle cx="18" cy="20" r="1.4" />
             </svg>
             {hasHydrated && itemCount > 0 ? (
-              <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-amber-400 px-1 text-[11px] font-bold leading-none text-coffee-900">
+              <span
+                data-testid="cart-badge"
+                className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-amber-400 px-1 text-[11px] font-bold leading-none text-coffee-900 shadow-sm"
+              >
                 {itemCount > 99 ? '99+' : itemCount}
               </span>
             ) : null}

@@ -1,7 +1,8 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import type { CartItem, Product, ProductOption } from './types';
 
 export const MAX_ITEM_QUANTITY = 20;
@@ -57,10 +58,7 @@ export const useCartStore = create<CartState>()(
                 item.key === key
                   ? {
                       ...item,
-                      quantity: Math.min(
-                        MAX_ITEM_QUANTITY,
-                        item.quantity + safeQuantity,
-                      ),
+                      quantity: Math.min(MAX_ITEM_QUANTITY, item.quantity + safeQuantity),
                     }
                   : item,
               ),
@@ -90,9 +88,7 @@ export const useCartStore = create<CartState>()(
             quantity <= 0
               ? state.items.filter((item) => item.key !== key)
               : state.items.map((item) =>
-                  item.key === key
-                    ? { ...item, quantity: clampQuantity(quantity) }
-                    : item,
+                  item.key === key ? { ...item, quantity: clampQuantity(quantity) } : item,
                 ),
         })),
 
@@ -108,6 +104,16 @@ export const useCartStore = create<CartState>()(
     {
       name: 'brewlite-cart',
       version: 1,
+      storage: createJSONStorage(() => {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          return window.localStorage;
+        }
+        return {
+          getItem: () => null,
+          setItem: () => {},
+          removeItem: () => {},
+        };
+      }),
       partialize: (state) => ({ items: state.items }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);
@@ -121,3 +127,22 @@ export const selectCartCount = (state: CartState): number =>
 
 export const selectCartSubtotal = (state: CartState): number =>
   state.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+
+/**
+ * Hook để kiểm tra xem store đã được hydrate trên client chưa.
+ * Giúp tránh hydration mismatch giữa SSR và Client (đặc biệt khi có dữ liệu trong localStorage).
+ */
+export function useCartHydrated(): boolean {
+  const [mounted, setMounted] = useState(false);
+  const storeHydrated = useCartStore((state) => state.hasHydrated);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  return (
+    mounted &&
+    (storeHydrated ||
+      (typeof useCartStore.persist !== 'undefined' && useCartStore.persist.hasHydrated()))
+  );
+}
