@@ -15,6 +15,7 @@ brewlite/
 │   │   │   ├── migrations/20261020120000_init/migration.sql
 │   │   │   └── seed.ts
 │   │   └── src/
+│   │       ├── auth/         # POST /auth/register, /auth/login, JwtAuthGuard
 │   │       ├── products/     # GET /products, GET /products/:id
 │   │       ├── health/       # GET /health, GET /health/ready
 │   │       ├── prisma/       # PrismaService/PrismaModule
@@ -188,6 +189,11 @@ pnpm dev:web   # terminal 2
 | `GET` | `/health/ready` | Readiness, chạy `SELECT 1` trên PostgreSQL. |
 | `GET` | `/products` | Danh sách món `ACTIVE`, kèm size/topping đang bán (FR-01). |
 | `GET` | `/products/:id` | Chi tiết món + size/topping (FR-02). `404` nếu không có. |
+| `POST` | `/auth/register` | Đăng ký (FR-04). Body: `email`, `password` (≥ 6 ký tự), `username` (tuỳ chọn). Mật khẩu băm bcrypt. `409` nếu email đã tồn tại, `400` nếu dữ liệu sai. |
+| `POST` | `/auth/login` | Đăng nhập (FR-04). Trả `accessToken` (JWT, mặc định hết hạn sau 1 giờ). Sai email/mật khẩu trả `401`. |
+| `GET` | `/auth/me` | Route mẫu có `JwtAuthGuard`, cần header `Authorization: Bearer <token>`. Thiếu hoặc sai token trả `401`. |
+
+Route cần đăng nhập (đặt đơn, thanh toán, lịch sử đơn) dùng `@UseGuards(JwtAuthGuard)` từ `apps/api/src/auth/jwt-auth.guard.ts`; lấy người dùng hiện tại bằng decorator `@CurrentUser()`. Role luôn được đọc lại từ DB, không tin role trong token (ADR-008).
 
 `GET /products` chỉ chọn field cần cho menu, dùng index `Product(status)` và `Product(name)`, không N+1.
 

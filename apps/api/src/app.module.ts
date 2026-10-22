@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
+import { AuthModule } from './auth/auth.module';
 import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -15,6 +16,7 @@ import { ProductsModule } from './products/products.module';
       validate: validateEnv,
     }),
     PrismaModule,
+    AuthModule,
     ProductsModule,
     HealthModule,
   ],
