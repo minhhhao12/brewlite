@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
 import { OptionType, OrderStatus, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -95,9 +96,7 @@ export class OrdersService {
         // Kiểm tra trạng thái hoạt động của món
         for (const product of products) {
           if (product.status !== 'ACTIVE') {
-            throw new BadRequestException(
-              `Sản phẩm "${product.name}" hiện không còn mở bán.`,
-            );
+            throw new BadRequestException(`Sản phẩm "${product.name}" hiện không còn mở bán.`);
           }
         }
 
@@ -219,9 +218,7 @@ export class OrdersService {
 
           const promoVal = promo.discountValue.toNumber();
           let discount =
-            promo.discountType === 'PERCENTAGE'
-              ? (subtotal * promoVal) / 100
-              : promoVal;
+            promo.discountType === 'PERCENTAGE' ? (subtotal * promoVal) / 100 : promoVal;
 
           if (promo.maxDiscount) {
             discount = Math.min(discount, promo.maxDiscount.toNumber());
@@ -348,27 +345,45 @@ export class OrdersService {
         throw new ForbiddenException('Bạn không có quyền hủy đơn hàng này.');
       }
 
+      // (1) Khách chỉ được tự hủy khi đơn chưa thanh toán.
+      //     PAID/PREPARING là luồng của nhân viên (hủy + hoàn tiền).
+      const customerCanCancel =
+        order.status === OrderStatus.PENDING || order.status === OrderStatus.PAYMENT_FAILED;
+
+      if (!customerCanCancel && role !== UserRole.STAFF) {
+        throw new ForbiddenException(
+          'Đơn hàng đã thanh toán hoặc đang xử lý, chỉ nhân viên mới có thể hủy.',
+        );
+      }
+
+      // Kiểm tra state machine trước để trả lỗi 400 dễ hiểu.
       OrderStateMachine.assertTransition(order.status, OrderStatus.CANCELLED);
 
-      // Hoàn lại tồn kho cho từng sản phẩm
+      // (2) Chốt trạng thái nguyên tử: chỉ 1 request được đi tiếp.
+      //     Request thua cuộc nhận count = 0 -> không hoàn kho.
+      const locked = await tx.order.updateMany({
+        where: { orderId, status: order.status },
+        data: { status: OrderStatus.CANCELLED },
+      });
+
+      if (locked.count === 0) {
+        throw new ConflictException(
+          'Đơn hàng vừa được cập nhật bởi thao tác khác, vui lòng tải lại và thử lại.',
+        );
+      }
+
+      // Hoàn kho chỉ chạy sau khi đã thắng chốt ở trên.
       for (const item of order.items) {
         await tx.product.update({
           where: { productId: item.productId },
-          data: {
-            stock: { increment: item.quantity },
-          },
+          data: { stock: { increment: item.quantity } },
         });
       }
 
-      const updated = await tx.order.update({
+      const updated = await tx.order.findUniqueOrThrow({
         where: { orderId },
-        data: {
-          status: OrderStatus.CANCELLED,
-        },
         include: {
-          items: {
-            include: { options: true },
-          },
+          items: { include: { options: true } },
           promotion: true,
         },
       });
