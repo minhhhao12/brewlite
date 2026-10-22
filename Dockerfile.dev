@@ -17,13 +17,13 @@ ENV PRISMA_HIDE_UPDATE_MESSAGE=1
 RUN corepack enable && corepack prepare pnpm@12.14.0 --activate
 
 # Copy manifest trước để tận dụng Docker layer cache khi source thay đổi.
-COPY package.json pnpm-workspace.yaml ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 
 # Cache store pnpm giữa các lần build (cần BuildKit – mặc định ở Docker Desktop/OrbStack).
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-    pnpm install --no-frozen-lockfile --store-dir /pnpm/store --prefer-offline
+    pnpm install --frozen-lockfile --store-dir /pnpm/store --prefer-offline
 
 COPY . .
 
