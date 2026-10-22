@@ -218,6 +218,7 @@ async function seedPromotions(): Promise<void> {
 async function main(): Promise<void> {
   await seedProducts();
   await seedPromotions();
+  await seedPaymentTestData();
 
   const [productCount, optionCount, promotionCount] = await Promise.all([
     prisma.product.count(),
@@ -238,3 +239,82 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
+  
+async function seedPaymentTestData(): Promise<void> {
+  const testUserId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+  const productId = '11111111-1111-4111-8111-000000000001';
+
+  const orders = [
+    {
+      orderId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1',
+      orderCode: 'TEST-PAY-001',
+    },
+    {
+      orderId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2',
+      orderCode: 'TEST-PAY-002',
+    },
+  ];
+
+  // Tạo user kiểm thử. Không dùng tài khoản này để đăng nhập thật.
+  await prisma.user.upsert({
+    where: { email: 'payment-test@brewlite.local' },
+    update: {},
+    create: {
+      userId: testUserId,
+      username: 'payment-test',
+      email: 'payment-test@brewlite.local',
+      passwordHash: 'NOT_FOR_LOGIN',
+      role: 'CUSTOMER',
+      isActive: true,
+    },
+  });
+
+  const product = await prisma.product.findUnique({
+    where: { productId },
+  });
+
+  if (!product) {
+    throw new Error(
+      'Không tìm thấy sản phẩm thử nghiệm. Hãy chạy seedProducts() trước.',
+    );
+  }
+
+  for (const orderData of orders) {
+    const existingOrder = await prisma.order.findUnique({
+      where: { orderId: orderData.orderId },
+    });
+
+    if (existingOrder) {
+      console.info(`Giữ nguyên đơn hàng ${existingOrder.orderCode}`);
+      continue;
+    }
+
+    const quantity = 1;
+    const unitPrice = Number(product.basePrice);
+    const subtotal = unitPrice * quantity;
+
+    await prisma.order.create({
+      data: {
+        orderId: orderData.orderId,
+        orderCode: orderData.orderCode,
+        userId: testUserId,
+        subtotal,
+        discountAmount: 0,
+        totalAmount: subtotal,
+        status: 'PENDING',
+        items: {
+          create: {
+            productId,
+            productName: product.name,
+            quantity,
+            unitPrice,
+            subtotal,
+          },
+        },
+      },
+    });
+
+    console.info(`Đã tạo đơn hàng ${orderData.orderCode}`);
+  }
+}
