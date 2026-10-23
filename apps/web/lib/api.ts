@@ -1,5 +1,5 @@
-import type { Product } from './types';
-
+import { getStoredToken } from './auth-store';
+import type { AuthResponse, OptionType, Order, Product, ProductOption } from './types';
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
 
 export class ApiError extends Error {
@@ -11,14 +11,51 @@ export class ApiError extends Error {
     this.name = 'ApiError';
   }
 }
+type RawOption = {
+  id: string;
+  name: string;
+  type: OptionType;
+  priceAdjustment: number | string;
+  isAvailable: boolean;
+};
+
+type RawProduct = {
+  id: string;
+  name: string;
+  description?: string;
+  price?: number | string;
+  basePrice?: number | string;
+  imageUrl?: string;
+  stock?: number;
+  status?: 'ACTIVE' | 'HIDDEN';
+  options?:
+    | ProductOption[]
+    | {
+        sizes?: RawOption[];
+        toppings?: RawOption[];
+      };
+};
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+  };
+
+  // Tự động gắn JWT Token vào Authorization header nếu đã đăng nhập (CV11 requirement)
+  const token = getStoredToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  // Ghi đè hoặc bổ sung headers từ init
+  if (init?.headers) {
+    const customHeaders = init.headers as Record<string, string>;
+    Object.assign(headers, customHeaders);
+  }
+
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
-    headers: {
-      Accept: 'application/json',
-      ...init?.headers,
-    },
+    headers,
     cache: 'no-store',
   });
 
@@ -41,8 +78,100 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  getProducts: () => request<Product[]>('/products'),
-  getProduct: (id: string) => request<Product>(`/products/${encodeURIComponent(id)}`),
+  getProducts: async (): Promise<Product[]> => {
+    const list = await request<RawProduct[]>('/products');
+    return list.map((raw) => {
+      let optionsList: ProductOption[] = [];
+      if (Array.isArray(raw.options)) {
+        optionsList = raw.options;
+      } else if (raw.options && typeof raw.options === 'object') {
+        const sizes = (raw.options.sizes ?? []).map((s) => ({
+          ...s,
+          priceAdjustment: Number(s.priceAdjustment),
+        }));
+        const toppings = (raw.options.toppings ?? []).map((t) => ({
+          ...t,
+          priceAdjustment: Number(t.priceAdjustment),
+        }));
+        optionsList = [...sizes, ...toppings];
+      }
+
+      return {
+        id: raw.id,
+        name: raw.name,
+        description: raw.description ?? '',
+        price: Number(raw.price ?? raw.basePrice ?? 0),
+        imageUrl: raw.imageUrl ?? '',
+        stock: raw.stock ?? 0,
+        status: raw.status ?? 'ACTIVE',
+        options: optionsList,
+      };
+    });
+  },
+
+  getProduct: async (id: string): Promise<Product> => {
+    const raw = await request<RawProduct>(`/products/${encodeURIComponent(id)}`);
+    let optionsList: ProductOption[] = [];
+    if (Array.isArray(raw.options)) {
+      optionsList = raw.options;
+    } else if (raw.options && typeof raw.options === 'object') {
+      const sizes = (raw.options.sizes ?? []).map((s) => ({
+        ...s,
+        priceAdjustment: Number(s.priceAdjustment),
+      }));
+      const toppings = (raw.options.toppings ?? []).map((t) => ({
+        ...t,
+        priceAdjustment: Number(t.priceAdjustment),
+      }));
+      optionsList = [...sizes, ...toppings];
+    }
+
+    return {
+      id: raw.id,
+      name: raw.name,
+      description: raw.description ?? '',
+      price: Number(raw.price ?? raw.basePrice ?? 0),
+      imageUrl: raw.imageUrl ?? '',
+      stock: raw.stock ?? 0,
+      status: raw.status ?? 'ACTIVE',
+      options: optionsList,
+    };
+  },
+
+  // Xác thực người dùng (CV11 / CV08)
+  login: (email: string, password: string): Promise<AuthResponse> =>
+    request<AuthResponse>('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    }),
+
+  register: async (email: string, password: string, username?: string): Promise<AuthResponse> => {
+    await request<{ id: string; email: string; username: string; role: string }>('/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, username }),
+    });
+    return api.login(email, password);
+  },
+
+  // API Đơn hàng cần Token (dùng để kiểm thử tiêu chí hoàn thành CV11)
+  getMyOrders: (): Promise<Order[]> => request<Order[]>('/orders/me'),
+
+  createOrder: (payload: {
+    items: Array<{
+      productId: string;
+      quantity: number;
+      sizeOptionId?: string;
+      toppingOptionIds?: string[];
+    }>;
+    promoCode?: string;
+  }): Promise<Order> =>
+    request<Order>('/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
 };
 
 export { API_URL };

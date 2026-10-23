@@ -29,3 +29,50 @@ export type CartItem = {
   quantity: number;
   unitPrice: number;
 };
+
+export type UserRole = 'CUSTOMER' | 'STAFF';
+
+export type User = {
+  id: string;
+  email: string;
+  username: string | null;
+  role: UserRole;
+  loyaltyPoints?: number;
+};
+
+export type AuthResponse = {
+  accessToken: string;
+  tokenType?: string;
+  user: User;
+};
+
+export type OrderItemOption = {
+  id: string;
+  orderItemId: string;
+  optionName: string;
+  optionType: OptionType;
+  priceAdjustment: number | string;
+};
+
+export type OrderItem = {
+  id: string;
+  orderId: string;
+  productId: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number | string;
+  subtotal: number | string;
+  options?: OrderItemOption[];
+};
+
+export type Order = {
+  id: string;
+  orderCode: string;
+  userId: string;
+  subtotal: number | string;
+  discountAmount: number | string;
+  totalAmount: number | string;
+  status: string;
+  createdAt: string;
+  items?: OrderItem[];
+};
