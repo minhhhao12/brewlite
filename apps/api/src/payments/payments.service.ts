@@ -65,7 +65,10 @@ export class PaymentsService {
       };
     }
 
-    if (order.status !== OrderStatus.PENDING) {
+    if (
+      order.status !== OrderStatus.PENDING &&
+      order.status !== OrderStatus.PAYMENT_FAILED
+    ) {
       throw new ConflictException(
         `Không thể thanh toán đơn hàng ở trạng thái ${order.status}.`,
       );
@@ -81,6 +84,22 @@ export class PaymentsService {
 
     try {
       const result = await this.prisma.$transaction(async (tx) => {
+        if (order.status === OrderStatus.PAYMENT_FAILED) {
+          const reset = await tx.order.updateMany({
+            where: {
+              orderId: order.orderId,
+              status: OrderStatus.PAYMENT_FAILED,
+            },
+            data: { status: OrderStatus.PENDING },
+          });
+          // Một request khác vừa đổi trạng thái đơn (ví dụ đã PAID) -> không ghi đè.
+          if (reset.count !== 1) {
+            throw new ConflictException(
+              'Đơn hàng đã được xử lý bởi một yêu cầu khác.',
+            );
+          }
+        }
+
         // Chỉ một yêu cầu được phép chuyển đơn PENDING.
         const updated = await tx.order.updateMany({
           where: {
