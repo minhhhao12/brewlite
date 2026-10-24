@@ -16,6 +16,9 @@ import { OrderStateMachine } from '../orders/domain/order-state-machine';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePaymentDto } from './dto/create-payments.dto';
 
+/** Sau khi controller đã hợp nhất header/body, khóa idempotency luôn có mặt. */
+export type CreatePaymentInput = CreatePaymentDto & { idempotencyKey: string };
+
 @Injectable()
 export class PaymentsService {
   constructor(
@@ -23,7 +26,7 @@ export class PaymentsService {
     private readonly config: ConfigService,
   ) {}
 
-  async create(dto: CreatePaymentDto) {
+  async create(dto: CreatePaymentInput) {
     const provider = this.config.get<string>('PAYMENT_PROVIDER', 'mock');
     const nodeEnv = this.config.get<string>('NODE_ENV', 'development');
 
@@ -150,11 +153,15 @@ export class PaymentsService {
 
       return result;
     } catch (error) {
-      // Xử lý retry đồng thời dùng cùng idempotency key.
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
+      // Retry đồng thời cùng Idempotency-Key: request thua cuộc có thể dính P2002
+      // (trùng unique key) hoặc 409 (đơn vừa bị request thắng cuộc đổi trạng thái).
+      // Cả hai trường hợp đều trả kết quả đã lưu của request thắng cuộc.
+      const isRace =
+        error instanceof ConflictException ||
+        (error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002');
+
+      if (isRace) {
         const duplicate = await this.prisma.payment.findUnique({
           where: {
             userId_orderId_idempotencyKey: {
