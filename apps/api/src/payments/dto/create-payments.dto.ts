@@ -17,10 +17,15 @@ export class CreatePaymentDto {
   @IsEnum(PaymentMethod)
   method!: PaymentMethod;
 
+  /**
+   * Tùy chọn, chỉ để tương thích client cũ. Nguồn chính là header `Idempotency-Key`
+   * (PaymentsController hợp nhất hai nguồn trước khi gọi service).
+   */
+  @IsOptional()
   @IsString()
   @MinLength(1)
   @MaxLength(64)
-  idempotencyKey!: string;
+  idempotencyKey?: string;
 
   @IsOptional()
   @IsBoolean()
