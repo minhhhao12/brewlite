@@ -76,3 +76,23 @@ export type Order = {
   createdAt: string;
   items?: OrderItem[];
 };
+
+export type PaymentMethod = 'WALLET' | 'CARD';
+
+export type Payment = {
+  id: string;
+  orderId: string;
+  userId: string;
+  idempotencyKey: string;
+  amount: number | string;
+  method: PaymentMethod;
+  status: 'INITIATED' | 'PAID' | 'FAILED';
+  transactionReference: string;
+  createdAt?: string;
+};
+
+export type PaymentResponse = {
+  payment: Payment;
+  orderStatus: string;
+  reused: boolean;
+};

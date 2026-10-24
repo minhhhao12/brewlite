@@ -12,6 +12,8 @@ import {
 } from '@/lib/cart-store';
 import { formatVnd } from '@/lib/format';
 import type { CartItem } from '@/lib/types';
+import { useAuthStore } from '@/lib/auth-store';
+import { useRouter } from 'next/navigation';
 
 function CartSkeleton() {
   return (
@@ -270,6 +272,9 @@ function CartItemRow({
 }
 
 export function CartView() {
+  const router = useRouter();
+  const token = useAuthStore((state) => state.token);
+
   const items = useCartStore((state) => state.items);
   const updateQuantity = useCartStore((state) => state.updateQuantity);
   const removeItem = useCartStore((state) => state.removeItem);
@@ -295,9 +300,11 @@ export function CartView() {
   };
 
   const handleCheckoutClick = () => {
-    setCheckoutNotice(
-      'Tính năng thanh toán trực tuyến đang được kết nối. Vui lòng kiểm tra lại đơn tại quầy nhận món!',
-    );
+    if (!token) {
+      router.push('/login?redirect=/checkout');
+    } else {
+      router.push('/checkout');
+    }
   };
 
   return (

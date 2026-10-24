@@ -1,5 +1,13 @@
 import { getStoredToken } from './auth-store';
-import type { AuthResponse, OptionType, Order, Product, ProductOption } from './types';
+import type {
+  AuthResponse,
+  OptionType,
+  Order,
+  PaymentMethod,
+  PaymentResponse,
+  Product,
+  ProductOption,
+} from './types';
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
 
 export class ApiError extends Error {
@@ -158,8 +166,7 @@ export const api = {
   // API Đơn hàng cần Token (CV11 / CV16)
   getMyOrders: (): Promise<Order[]> => request<Order[]>('/orders/me'),
 
-  getOrderById: (id: string): Promise<Order> =>
-    request<Order>(`/orders/${encodeURIComponent(id)}`),
+  getOrderById: (id: string): Promise<Order> => request<Order>(`/orders/${encodeURIComponent(id)}`),
 
   createOrder: (payload: {
     items: Array<{
@@ -174,6 +181,29 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+    }),
+
+  // API Thanh toán đơn hàng có Idempotency-Key 
+  createPayment: (
+    payload: {
+      orderId: string;
+      method: PaymentMethod;
+      simulateFailure?: boolean;
+    },
+    idempotencyKey: string,
+  ): Promise<PaymentResponse> =>
+    request<PaymentResponse>('/payments', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+      },
+      body: JSON.stringify({
+        orderId: payload.orderId,
+        method: payload.method,
+        simulateFailure: payload.simulateFailure,
+        idempotencyKey,
+      }),
     }),
 };
 
