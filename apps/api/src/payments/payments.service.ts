@@ -12,6 +12,7 @@ import {
   PaymentStatus,
   Prisma,
 } from '@prisma/client';
+import { OrderStateMachine } from '../orders/domain/order-state-machine';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePaymentDto } from './dto/create-payments.dto';
 
@@ -78,6 +79,19 @@ export class PaymentsService {
     const paymentStatus = failed
       ? PaymentStatus.FAILED
       : PaymentStatus.PAID;
+    const nextOrderStatus = failed
+      ? OrderStatus.PAYMENT_FAILED
+      : OrderStatus.PAID;
+
+    // FR-08: PaymentsService không tự định nghĩa transition, luôn hỏi OrderStateMachine.
+    // PAYMENT_FAILED -> PENDING (thử lại) rồi PENDING -> PAID | PAYMENT_FAILED.
+    if (order.status === OrderStatus.PAYMENT_FAILED) {
+      OrderStateMachine.assertTransition(
+        OrderStatus.PAYMENT_FAILED,
+        OrderStatus.PENDING,
+      );
+    }
+    OrderStateMachine.assertTransition(OrderStatus.PENDING, nextOrderStatus);
 
     const transactionReference =
       `MOCK-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -106,11 +120,7 @@ export class PaymentsService {
             orderId: order.orderId,
             status: OrderStatus.PENDING,
           },
-          data: {
-            status: failed
-              ? OrderStatus.PAYMENT_FAILED
-              : OrderStatus.PAID,
-          },
+          data: { status: nextOrderStatus },
         });
 
         if (updated.count !== 1) {
@@ -133,9 +143,7 @@ export class PaymentsService {
 
         return {
           payment,
-          orderStatus: failed
-            ? OrderStatus.PAYMENT_FAILED
-            : OrderStatus.PAID,
+          orderStatus: nextOrderStatus,
           reused: false,
         };
       });

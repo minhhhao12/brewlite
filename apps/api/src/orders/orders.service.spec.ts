@@ -267,6 +267,93 @@ describe('OrdersService (FR-05, FR-08, FR-09, NFR-05)', () => {
         NotFoundException,
       );
     });
+
+    describe('chặn chuyển trạng thái sai bằng OrderStateMachine (FR-08)', () => {
+      const orderWith = (status: OrderStatus) => ({
+        orderId: 'order-1',
+        userId: 'user-1',
+        status,
+        items: [{ productId: mockProduct.productId, quantity: 3 }],
+      });
+
+      it('nhân viên không được hủy lại đơn đã CANCELLED (tránh hoàn kho lần hai)', async () => {
+        prisma.order.findFirst.mockResolvedValue(orderWith(OrderStatus.CANCELLED));
+        prisma.order.updateMany.mockResolvedValue({ count: 1 });
+
+        await expect(service.cancelOrder('order-1', 'staff-1', UserRole.STAFF)).rejects.toThrow(
+          BadRequestException,
+        );
+        expect(prisma.order.updateMany).not.toHaveBeenCalled();
+        expect(prisma.product.update).not.toHaveBeenCalled();
+      });
+
+      it('nhân viên không được hủy đơn đã COMPLETED (trạng thái cuối)', async () => {
+        prisma.order.findFirst.mockResolvedValue(orderWith(OrderStatus.COMPLETED));
+
+        await expect(service.cancelOrder('order-1', 'staff-1', UserRole.STAFF)).rejects.toThrow(
+          BadRequestException,
+        );
+        expect(prisma.product.update).not.toHaveBeenCalled();
+      });
+
+      it('nhân viên không được hủy đơn đang PREPARING (thiết kế chỉ cho PAID → CANCELLED)', async () => {
+        prisma.order.findFirst.mockResolvedValue(orderWith(OrderStatus.PREPARING));
+
+        await expect(service.cancelOrder('order-1', 'staff-1', UserRole.STAFF)).rejects.toThrow(
+          BadRequestException,
+        );
+        expect(prisma.product.update).not.toHaveBeenCalled();
+      });
+
+      it('nhân viên hủy đơn PAID thì được phép và hoàn kho (PAID → CANCELLED)', async () => {
+        prisma.order.findFirst.mockResolvedValue(orderWith(OrderStatus.PAID));
+        prisma.order.updateMany.mockResolvedValue({ count: 1 });
+        prisma.order.findUniqueOrThrow.mockResolvedValue({
+          ...orderWith(OrderStatus.CANCELLED),
+          items: [],
+        });
+
+        const cancelled = await service.cancelOrder('order-1', 'staff-1', UserRole.STAFF);
+
+        expect(cancelled.status).toBe(OrderStatus.CANCELLED);
+        expect(prisma.product.update).toHaveBeenCalledTimes(1);
+      });
+    });
+  });
+
+  describe('updateStatus (FR-08, luồng KDS)', () => {
+    const orderWith = (status: OrderStatus) => ({ orderId: 'order-1', userId: 'user-1', status });
+
+    it('cho phép PAID → PREPARING', async () => {
+      prisma.order.findFirst.mockResolvedValue(orderWith(OrderStatus.PAID));
+      prisma.order.update.mockResolvedValue({ ...orderWith(OrderStatus.PREPARING), items: [] });
+
+      const updated = await service.updateStatus('order-1', OrderStatus.PREPARING);
+
+      expect(updated.status).toBe(OrderStatus.PREPARING);
+      expect(prisma.order.update).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['nhảy cóc PAID → COMPLETED', OrderStatus.PAID, OrderStatus.COMPLETED],
+      ['đi lùi READY → PREPARING', OrderStatus.READY, OrderStatus.PREPARING],
+      ['đơn chưa thanh toán PENDING → PREPARING', OrderStatus.PENDING, OrderStatus.PREPARING],
+      ['giữ nguyên trạng thái PAID → PAID', OrderStatus.PAID, OrderStatus.PAID],
+      ['rời trạng thái cuối COMPLETED → READY', OrderStatus.COMPLETED, OrderStatus.READY],
+    ])('chặn %s và không ghi DB', async (_name, from, to) => {
+      prisma.order.findFirst.mockResolvedValue(orderWith(from));
+
+      await expect(service.updateStatus('order-1', to)).rejects.toThrow(BadRequestException);
+      expect(prisma.order.update).not.toHaveBeenCalled();
+    });
+
+    it('báo NotFoundException khi đơn hàng không tồn tại', async () => {
+      prisma.order.findFirst.mockResolvedValue(null);
+
+      await expect(service.updateStatus('khong-co', OrderStatus.PREPARING)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
   });
 
   describe('getMyOrders (FR-07)', () => {
