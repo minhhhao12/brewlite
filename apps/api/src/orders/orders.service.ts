@@ -306,8 +306,15 @@ export class OrdersService {
    * Xem chi tiết 1 đơn hàng theo ID.
    */
   async getOrderById(orderId: string, userId: string, role?: UserRole) {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        orderId,
+      );
+
     const order = await this.prisma.order.findFirst({
-      where: { orderId },
+      where: isUuid
+        ? { OR: [{ orderId }, { orderCode: orderId }] }
+        : { orderCode: orderId },
       include: {
         items: {
           include: { options: true },

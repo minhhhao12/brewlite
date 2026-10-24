@@ -155,8 +155,11 @@ export const api = {
     return api.login(email, password);
   },
 
-  // API Đơn hàng cần Token (dùng để kiểm thử tiêu chí hoàn thành CV11)
+  // API Đơn hàng cần Token (CV11 / CV16)
   getMyOrders: (): Promise<Order[]> => request<Order[]>('/orders/me'),
+
+  getOrderById: (id: string): Promise<Order> =>
+    request<Order>(`/orders/${encodeURIComponent(id)}`),
 
   createOrder: (payload: {
     items: Array<{

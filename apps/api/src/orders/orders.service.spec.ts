@@ -356,26 +356,162 @@ describe('OrdersService (FR-05, FR-08, FR-09, NFR-05)', () => {
     });
   });
 
-  describe('getMyOrders (FR-07)', () => {
-    it('trả về danh sách đơn hàng được ánh xạ đúng', async () => {
+  describe('getMyOrders (FR-07, CV16)', () => {
+    it('trả về danh sách đơn hàng của chính user với đầy đủ mã đơn, trạng thái, tổng, ngày, items', async () => {
+      const mockDate = new Date('2026-10-24T10:00:00Z');
       prisma.order.findMany.mockResolvedValue([
         {
           orderId: 'order-1',
-          orderCode: 'BL-TEST-1',
+          orderCode: 'BL-20261024-0001',
           userId: 'user-1',
-          subtotal: new Prisma.Decimal(29000),
-          discountAmount: new Prisma.Decimal(0),
-          totalAmount: new Prisma.Decimal(29000),
+          promotionId: null,
+          subtotal: new Prisma.Decimal(45000),
+          discountAmount: new Prisma.Decimal(5000),
+          totalAmount: new Prisma.Decimal(40000),
           status: OrderStatus.PENDING,
-          createdAt: new Date(),
-          items: [],
+          createdAt: mockDate,
+          items: [
+            {
+              orderItemId: 'item-1',
+              orderId: 'order-1',
+              productId: 'prod-1',
+              productName: 'Cà phê Sữa Đá',
+              quantity: 1,
+              unitPrice: new Prisma.Decimal(45000),
+              subtotal: new Prisma.Decimal(45000),
+              options: [
+                {
+                  orderItemOptionId: 'opt-1',
+                  optionName: 'Size L',
+                  optionType: OptionType.SIZE,
+                  priceAdjustment: new Prisma.Decimal(10000),
+                },
+              ],
+            },
+          ],
+          promotion: null,
         },
       ]);
 
       const orders = await service.getMyOrders('user-1');
+
+      expect(prisma.order.findMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1' },
+        include: {
+          items: {
+            include: { options: true },
+          },
+          promotion: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
       expect(orders).toHaveLength(1);
-      expect(orders[0].id).toBe('order-1');
-      expect(orders[0].subtotal).toBe(29000);
+      const firstOrder = orders[0];
+      // Kiểm tra đầy đủ thông tin: mã đơn, trạng thái, tổng, ngày, items
+      expect(firstOrder.orderCode).toBe('BL-20261024-0001');
+      expect(firstOrder.status).toBe(OrderStatus.PENDING);
+      expect(firstOrder.totalAmount).toBe(40000);
+      expect(firstOrder.createdAt).toEqual(mockDate);
+      expect(firstOrder.items).toHaveLength(1);
+      expect(firstOrder.items[0].productName).toBe('Cà phê Sữa Đá');
+      expect(firstOrder.items[0].options[0].optionName).toBe('Size L');
+    });
+  });
+
+  describe('getOrderById (FR-07, CV16 - Chi tiết đơn hàng cho màn hình xác nhận)', () => {
+    const mockOrder = {
+      orderId: 'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d',
+      orderCode: 'BL-20261024-9999',
+      userId: 'user-owner',
+      promotionId: null,
+      subtotal: new Prisma.Decimal(35000),
+      discountAmount: new Prisma.Decimal(0),
+      totalAmount: new Prisma.Decimal(35000),
+      status: OrderStatus.PENDING,
+      createdAt: new Date('2026-10-24T12:00:00Z'),
+      items: [
+        {
+          orderItemId: 'item-uuid-1',
+          orderId: 'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d',
+          productId: 'prod-uuid-1',
+          productName: 'Trà Đào Cam Sả',
+          quantity: 1,
+          unitPrice: new Prisma.Decimal(35000),
+          subtotal: new Prisma.Decimal(35000),
+          options: [],
+        },
+      ],
+      promotion: null,
+    };
+
+    it('trả về chi tiết đơn hàng cho chính user sở hữu đơn (bằng UUID orderId)', async () => {
+      prisma.order.findFirst.mockResolvedValue(mockOrder);
+
+      const result = await service.getOrderById(
+        'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d',
+        'user-owner',
+        UserRole.CUSTOMER,
+      );
+
+      expect(result.id).toBe('a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d');
+      expect(result.orderCode).toBe('BL-20261024-9999');
+      expect(result.totalAmount).toBe(35000);
+      expect(result.items).toHaveLength(1);
+    });
+
+    it('hỗ trợ tìm kiếm theo mã đơn hàng orderCode (không phải UUID)', async () => {
+      prisma.order.findFirst.mockResolvedValue(mockOrder);
+
+      const result = await service.getOrderById(
+        'BL-20261024-9999',
+        'user-owner',
+        UserRole.CUSTOMER,
+      );
+
+      expect(prisma.order.findFirst).toHaveBeenCalledWith({
+        where: { orderCode: 'BL-20261024-9999' },
+        include: {
+          items: {
+            include: { options: true },
+          },
+          promotion: true,
+        },
+      });
+      expect(result.orderCode).toBe('BL-20261024-9999');
+    });
+
+    it('chặn người dùng khác xem đơn hàng không thuộc về mình (Chỉ trả đơn của chính user)', async () => {
+      prisma.order.findFirst.mockResolvedValue(mockOrder);
+
+      await expect(
+        service.getOrderById(
+          'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d',
+          'user-intruder',
+          UserRole.CUSTOMER,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('cho phép tài khoản nhân viên (STAFF) xem chi tiết đơn hàng', async () => {
+      prisma.order.findFirst.mockResolvedValue(mockOrder);
+
+      const result = await service.getOrderById(
+        'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d',
+        'staff-user-id',
+        UserRole.STAFF,
+      );
+
+      expect(result.id).toBe('a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d');
+      expect(result.totalAmount).toBe(35000);
+    });
+
+    it('báo lỗi NotFoundException khi không tìm thấy đơn hàng', async () => {
+      prisma.order.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.getOrderById('non-existent-order', 'user-owner', UserRole.CUSTOMER),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });
