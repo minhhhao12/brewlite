@@ -69,19 +69,42 @@ export class OrdersService {
   }
 
   /**
-   * FR-05 / FR-09 / NFR-05: Tạo đơn hàng trong Transaction Serializable,
-   * kiểm tra tồn kho, tính giá server-side và trừ tồn kho nguyên tử.
+   * FR-05 / FR-09 / NFR-05 / CV18: Tạo đơn hàng trong Transaction Serializable kết hợp Optimistic Locking,
+   * kiểm tra tồn kho, tính giá server-side và trừ tồn kho nguyên tử chống bán vượt tồn kho (oversell).
    */
   async createOrder(userId: string, dto: CreateOrderDto) {
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await this.executeCreateOrder(userId, dto);
+      } catch (error) {
+        // Chỉ thử lại khi xảy ra ConflictException (xung đột phiên bản khi tồn kho vẫn còn)
+        if (error instanceof ConflictException && attempt < maxRetries) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, attempt * 20 + Math.floor(Math.random() * 20)),
+          );
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw new ConflictException(
+      'Không thể hoàn tất đơn hàng sau nhiều lần thử do xung đột giao dịch đồng thời.',
+    );
+  }
+
+  private async executeCreateOrder(userId: string, dto: CreateOrderDto) {
     if (!dto.items || dto.items.length === 0) {
       throw new BadRequestException('Giỏ hàng không được để trống.');
     }
 
-    const uniqueProductIds = [...new Set(dto.items.map((i) => i.productId))];
+    // Sắp xếp ID theo thứ tự cố định để tránh deadlock khi có nhiều request đồng thời (architecture §7.3)
+    const uniqueProductIds = [...new Set(dto.items.map((i) => i.productId))].sort();
 
     return this.prisma.$transaction(
       async (tx) => {
-        // Đọc danh sách sản phẩm và các tùy chọn từ DB
+        // Đọc danh sách sản phẩm và các tùy chọn từ DB (bao gồm version và stock)
         const products = await tx.product.findMany({
           where: { productId: { in: uniqueProductIds } },
           include: { options: true },
@@ -231,16 +254,36 @@ export class OrdersService {
         const totalAmount = Math.max(0, subtotal - discountAmount);
         const orderCode = `BL-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-        // Trừ tồn kho nguyên tử (chống oversell)
+        // Trừ tồn kho nguyên tử kết hợp Optimistic Locking (chống oversell và race conditions - CV18, NFR-05)
         for (const [pId, qty] of productQuantities.entries()) {
+          const product = productMap.get(pId)!;
           const updated = await tx.product.updateMany({
-            where: { productId: pId, stock: { gte: qty } },
-            data: { stock: { decrement: qty } },
+            where: {
+              productId: pId,
+              version: product.version,
+              stock: { gte: qty },
+            },
+            data: {
+              stock: { decrement: qty },
+              version: { increment: 1 },
+            },
           });
 
           if (updated.count === 0) {
-            throw new BadRequestException(
-              'Tồn kho sản phẩm đã thay đổi, không đủ số lượng để hoàn tất đơn hàng.',
+            // Kiểm tra nguyên nhân: Hết hàng hay do xung đột phiên bản với giao dịch khác
+            const currentProd = await tx.product.findUnique({
+              where: { productId: pId },
+              select: { stock: true, name: true },
+            });
+
+            if (!currentProd || currentProd.stock < qty) {
+              throw new BadRequestException(
+                `Sản phẩm "${product.name}" đã hết hàng hoặc không đủ số lượng trong kho.`,
+              );
+            }
+
+            throw new ConflictException(
+              `Tồn kho sản phẩm "${product.name}" đã thay đổi do có giao dịch đồng thời, vui lòng thử lại.`,
             );
           }
         }
@@ -383,7 +426,10 @@ export class OrdersService {
       for (const item of order.items) {
         await tx.product.update({
           where: { productId: item.productId },
-          data: { stock: { increment: item.quantity } },
+          data: {
+            stock: { increment: item.quantity },
+            version: { increment: 1 },
+          },
         });
       }
 

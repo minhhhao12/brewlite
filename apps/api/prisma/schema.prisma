@@ -90,8 +90,9 @@ model Product {
   basePrice   Decimal       @db.Decimal(12, 2)
   imageUrl    String        @db.VarChar(500)
   // Tồn kho chỉ quản lý ở Product.stock; Size/Topping không có kho riêng (FR-02).
-  // Trừ kho bằng updateMany có điều kiện: where { productId, stock: { gte: qty } }.
+  // Trừ kho kết hợp optimistic locking (version) và điều kiện: where { productId, version, stock: { gte: qty } } (CV18, NFR-05).
   stock       Int           @default(0)
+  version     Int           @default(0)
   status      ProductStatus @default(ACTIVE)
 
   options    ProductOption[]

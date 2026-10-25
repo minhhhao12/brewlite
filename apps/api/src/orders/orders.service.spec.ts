@@ -17,6 +17,7 @@ describe('OrdersService (FR-05, FR-08, FR-09, NFR-05)', () => {
       findMany: jest.Mock;
       updateMany: jest.Mock;
       update: jest.Mock;
+      findUnique: jest.Mock;
     };
     promotion: {
       findUnique: jest.Mock;
@@ -37,6 +38,7 @@ describe('OrdersService (FR-05, FR-08, FR-09, NFR-05)', () => {
     description: 'Đậm đà hương vị cà phê Robusta',
     basePrice: new Prisma.Decimal(29000),
     stock: 50,
+    version: 0,
     status: 'ACTIVE',
     options: [
       {
@@ -67,6 +69,7 @@ describe('OrdersService (FR-05, FR-08, FR-09, NFR-05)', () => {
         findMany: jest.fn(),
         updateMany: jest.fn(),
         update: jest.fn(),
+        findUnique: jest.fn(),
       },
       promotion: {
         findUnique: jest.fn(),
@@ -117,8 +120,8 @@ describe('OrdersService (FR-05, FR-08, FR-09, NFR-05)', () => {
       });
 
       expect(prisma.product.updateMany).toHaveBeenCalledWith({
-        where: { productId: mockProduct.productId, stock: { gte: 2 } },
-        data: { stock: { decrement: 2 } },
+        where: { productId: mockProduct.productId, version: 0, stock: { gte: 2 } },
+        data: { stock: { decrement: 2 }, version: { increment: 1 } },
       });
       expect(result.subtotal).toBe(90000);
       expect(result.totalAmount).toBe(90000);
@@ -195,6 +198,70 @@ describe('OrdersService (FR-05, FR-08, FR-09, NFR-05)', () => {
       expect(result.discountAmount).toBe(10000);
       expect(result.totalAmount).toBe(19000);
     });
+
+    it('kiểm soát tồn kho bằng optimistic locking (version) khi trừ stock (CV18)', async () => {
+      prisma.product.findMany.mockResolvedValue([mockProduct]);
+      prisma.product.updateMany.mockResolvedValue({ count: 1 });
+      prisma.order.create.mockImplementation(async ({ data }: { data: any }) => ({
+        orderId: 'order-optimistic',
+        ...data,
+        items: [],
+      }));
+
+      await service.createOrder('user-1', {
+        items: [{ productId: mockProduct.productId, quantity: 2 }],
+      });
+
+      expect(prisma.product.updateMany).toHaveBeenCalledWith({
+        where: {
+          productId: mockProduct.productId,
+          version: mockProduct.version,
+          stock: { gte: 2 },
+        },
+        data: {
+          stock: { decrement: 2 },
+          version: { increment: 1 },
+        },
+      });
+    });
+
+    it('báo lỗi rõ ràng khi cập nhật thất bại do hết hàng trong kho (CV18)', async () => {
+      prisma.product.findMany.mockResolvedValue([mockProduct]);
+      prisma.product.updateMany.mockResolvedValue({ count: 0 });
+      prisma.product.findUnique.mockResolvedValue({
+        stock: 0,
+        name: mockProduct.name,
+      });
+
+      await expect(
+        service.createOrder('user-1', {
+          items: [{ productId: mockProduct.productId, quantity: 1 }],
+        }),
+      ).rejects.toThrow('đã hết hàng hoặc không đủ số lượng trong kho');
+    });
+
+    it('tự động retry và thành công khi gặp xung đột version đồng thời nhưng kho vẫn còn đủ hàng (CV18)', async () => {
+      prisma.product.findMany.mockResolvedValue([mockProduct]);
+      prisma.product.updateMany
+        .mockResolvedValueOnce({ count: 0 })
+        .mockResolvedValueOnce({ count: 1 });
+      prisma.product.findUnique.mockResolvedValue({
+        stock: 45,
+        name: mockProduct.name,
+      });
+      prisma.order.create.mockImplementation(async ({ data }: { data: any }) => ({
+        orderId: 'order-retry-success',
+        ...data,
+        items: [],
+      }));
+
+      const result = await service.createOrder('user-1', {
+        items: [{ productId: mockProduct.productId, quantity: 1 }],
+      });
+
+      expect(result).toBeDefined();
+      expect(prisma.product.updateMany).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('cancelOrder', () => {
@@ -219,7 +286,7 @@ describe('OrdersService (FR-05, FR-08, FR-09, NFR-05)', () => {
       expect(cancelled.status).toBe(OrderStatus.CANCELLED);
       expect(prisma.product.update).toHaveBeenCalledWith({
         where: { productId: mockProduct.productId },
-        data: { stock: { increment: 3 } },
+        data: { stock: { increment: 3 }, version: { increment: 1 } },
       });
     });
     it('khách không được huỷ đơn đã thanh toán', async () => {
