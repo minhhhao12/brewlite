@@ -1,9 +1,5 @@
 @startuml
-' Class-01 — BrewLite Domain Class Diagram (Task 2.3)
-' Nguồn truy vết: docs/requirements/srs.md (FR-01..FR-14), docs/requirements/use-case-overview.puml,
-' docs/requirements/use-case-checkout.md (UC-08) và docs/traceability-matrix.md (mã Class-01).
-' Bản kết xuất: docs/diagrams/class-diagram.svg
-title Class-01 — BrewLite: Sơ đồ lớp miền nghiệp vụ
+title Class-01 — BrewLite: Sơ đồ lớp
 
 left to right direction
 
@@ -48,10 +44,8 @@ enum PaymentMethod {
 
 enum PaymentStatus {
     INITIATED
-    PROCESSING
     PAID
     FAILED
-    EXPIRED
 }
 
 enum DiscountType {
@@ -143,7 +137,7 @@ package "Product Management" {
 }
 
 ' =========================
-' CART (Client-side — FR-03)
+' CART (Client-side — FR-03) (Không cần tạo database)
 ' =========================
 
 package "Cart Management" {
@@ -158,10 +152,6 @@ package "Cart Management" {
         +clear()
     }
 
-    note right of Cart
-        FR-03: giỏ hàng quản lý phía client, persist qua localStorage.
-        Server KHÔNG lưu Cart/CartItem và bỏ qua total do client gửi.
-    end note
 
     class CartItem {
         -itemId: UUID
@@ -188,19 +178,16 @@ package "Cart Management" {
 package "Order Management" {
 
     class Order {
-        -orderId: UUID
-        -orderCode: String
-        -createdAt: DateTime
-        -subtotal: Decimal
-        -discountAmount: Decimal
-        -totalAmount: Decimal
-        -status: OrderStatus
-        +calculateTotal(): Decimal
-        +markPaid()
-        +markPaymentFailed()
-        +cancel(reason: String)
-        +assertTransition(newStatus: OrderStatus)
-    }
+    -orderId: UUID
+    -orderCode: String
+    -createdAt: DateTime
+    -subtotal: Decimal
+    -discountAmount: Decimal
+    -totalAmount: Decimal
+    -status: OrderStatus
+    +calculateTotal(): Decimal
+    +assertTransition(newStatus: OrderStatus)
+}
 
     note right of Order
         State Machine (FR-08 — nguồn duy nhất):
@@ -246,55 +233,24 @@ package "Order Management" {
 package "Payment Management" {
 
     class Payment {
-        -paymentId: UUID
-        -userId: UUID
-        -orderId: UUID
-        -idempotencyKey: String
-        -amount: Decimal
-        -method: PaymentMethod
-        -status: PaymentStatus
-        -transactionReference: String
-        -createdAt: DateTime
-        -expiresAt: DateTime
-        +initiate()
-        +verifyResult(): Boolean
-        +markPaid()
-        +markFailed()
-        +markExpired()
-    }
+    -paymentId: UUID
+    -orderId: UUID
+    -idempotencyKey: String
+    -amount: Decimal
+    -method: PaymentMethod
+    -status: PaymentStatus
+    -transactionReference: String
+    -createdAt: DateTime
+    +initiate()
+    +verifyResult()
+}
 
-    note right of Payment
-        FR-06 + NFR-05: Payment LÀ bản ghi idempotency.
-        UNIQUE(userId, orderId, idempotencyKey) — tương đương
-        UNIQUE(orderId, idempotencyKey) vì orderId xác định userId.
-        Trạng thái PROCESSING là "reservation" tạo TRƯỚC khi gọi
-        gateway; kết quả thành công/thất bại được lưu cùng key để
-        retry trả về kết quả cũ (không gọi gateway lần 2).
-        amount phải bằng Order.totalAmount.
-        FR-06 (siết chặt): mỗi order có tối đa 1 Payment PROCESSING tại
-        một thời điểm — guard "còn Payment PROCESSING cho orderId" nằm
-        dưới khóa SELECT Order FOR UPDATE (chặn double-charge khác key).
-        expiresAt / markExpired / verifyResult dùng cho đối soát timeout
-        (RSK-03): timeout chưa xác minh -> giữ PROCESSING, đơn vẫn PENDING,
-        trả 409; quá expiresAt & chưa trừ tiền -> markExpired() -> EXPIRED.
-    end note
 
     interface PaymentGateway {
-        +createPayment(orderId: UUID, amount: Decimal, method: PaymentMethod): String
-        +queryTransaction(reference: String): PaymentStatus
-        +verifyCallback(rawBody: String, signature: String): Boolean
-    }
+    +createPayment(orderId: UUID, amount: Decimal, method: PaymentMethod): String
+    +queryTransaction(reference: String): PaymentStatus
+}
 
-    note right of PaymentGateway
-        Cổng thanh toán mô phỏng, gọi đồng bộ (FR-06; Won't cash - FR-13).
-        queryTransaction: đối soát trạng thái giao dịch theo reference —
-        dùng bởi Payment.verifyResult() khi timeout (FR-06, RSK-03).
-        verifyCallback: xác thực callback/webhook bất đồng bộ (Extended,
-        ngoài MVP — dự phòng RSK-03): HMAC-SHA256(rawBody, GATEWAY_SECRET),
-        so sánh constant-time, cửa sổ timestamp ±5' chống replay, idempotent
-        theo eventId. Callback hợp lệ đi qua đúng assertTransition() của FR-08,
-        không tự định nghĩa transition riêng. GATEWAY_SECRET nằm trong .env.
-    end note
 
 }
 
@@ -305,32 +261,19 @@ package "Payment Management" {
 package "Promotion Management" {
 
     class Promotion {
-        -promotionId: UUID
-        -code: String
-        -discountType: DiscountType
-        -discountValue: Decimal
-        -maxDiscount: Decimal
-        -minimumOrderAmount: Decimal
-        -usageLimit: Integer
-        -usageCount: Integer
-        -maxUsagePerUser: Integer
-        -startAt: DateTime
-        -endAt: DateTime
-        -status: PromotionStatus
-        +isValid(order: Order): Boolean
-        +calculateDiscount(order: Order): Decimal
-        +activate()
-        +deactivate()
-        +incrementUsage()
-    }
+    -promotionId: UUID
+    -code: String
+    -discountType: DiscountType
+    -discountValue: Decimal
+    -maxDiscount: Decimal
+    -minimumOrderAmount: Decimal
+    -startAt: DateTime
+    -endAt: DateTime
+    -status: PromotionStatus
+    +isValid(order: Order): Boolean
+    +calculateDiscount(order: Order): Decimal
+}
 
-    note right of Promotion
-        FR-09: tối đa 1 mã/đơn, không cộng dồn.
-        discount = min(configuredDiscount, maxDiscount, subtotal);
-        total = max(0, subtotal - discount). Lock row khi redeem.
-        usageCount tăng trong transaction tạo đơn (Activity-01);
-        SRS không quy định hoàn lượt khi đơn bị hủy — cần xác nhận.
-    end note
 
 }
 
@@ -341,43 +284,15 @@ package "Promotion Management" {
 package "Loyalty Management" {
 
     class LoyaltyTransaction {
-        -transactionId: UUID
-        -points: Integer
-        -type: LoyaltyType
-        -createdAt: DateTime
-        +isEarning(): Boolean
-    }
+    -transactionId: UUID
+    -points: Integer
+    -type: LoyaltyType
+    -createdAt: DateTime
+}
 
-    note right of LoyaltyTransaction
-        FR-10: idempotent theo orderId (retry không cộng 2 lần).
-        Mỗi Order sinh tối đa 1 EARN (+points) và tối đa
-        1 REVERSAL (-points) khi PAID → CANCELLED.
-    end note
 
 }
 
-' =========================
-' AUDIT (FR-11 — Extended)
-' =========================
-
-package "Audit Management" {
-
-    class AuditLog {
-        -auditId: UUID
-        -actorUserId: UUID
-        -action: String
-        -entityType: String
-        -entityId: UUID
-        -beforeValue: String
-        -afterValue: String
-        -createdAt: DateTime
-    }
-
-    note right of AuditLog
-        FR-11: ghi audit log khi staff cập nhật sản phẩm / chuyển hết hàng.
-    end note
-
-}
 
 ' =========================
 ' RELATIONSHIPS
@@ -394,9 +309,6 @@ User "1" -- "0..*" Payment : pays
 
 ' User and Loyalty
 User "1" -- "0..*" LoyaltyTransaction : earns
-
-' User and audit log (FR-11)
-User "1" -- "0..*" AuditLog : performs
 
 ' Product and Options
 Product "1" *-- "0..*" ProductOption : has

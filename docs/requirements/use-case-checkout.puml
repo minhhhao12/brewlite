@@ -1,45 +1,32 @@
 @startuml
-' Canonical ID khớp srs.md + use-case-checkout.md: UC-07 đặt đơn (base), UC-08 thanh toán, UC-09 khuyến mãi (extend UC-07)
+' Use case trọng tâm: UC-08 Thanh toán đơn hàng
 left to right direction
-
+skinparam packageStyle rectangle
+skinparam ranksep 80
+skinparam nodesep 30
 
 actor "Khách hàng" as Customer
-actor "Cổng thanh toán" as PaymentGateway
+actor "Cổng thanh toán\n(Mock Payment Gateway)" as PaymentGateway
 
-rectangle "Hệ thống BrewLite - Thanh toán đơn hàng" {
+rectangle "BrewLite System" {
+  usecase "Thanh toán đơn hàng\n(UC-08)" as UC_08
 
-    usecase "Đặt đơn hàng" as UC_07
+  ' --- include: bước bắt buộc ---
+  usecase "Xác thực JWT & kiểm tra\nquyền sở hữu đơn hàng" as UC_08c
+  usecase "Chọn phương thức thanh toán\n(Ví điện tử / Thẻ ngân hàng)" as UC_08b
+  usecase "Thanh toán online\n(gửi yêu cầu, nhận kết quả)" as UC_08a
 
-    usecase "Thanh toán đơn hàng" as UC_08
-
-    usecase "Áp dụng mã\nkhuyến mãi" as UC_09
-
-    usecase "Xử lý thanh toán\nonline" as UC_08a
-
-    usecase "Kiểm tra đơn hàng\nvà quyền sở hữu" as UC_08b
-
-    usecase "Kiểm tra khóa\nIdempotency" as UC_08c
-
-    usecase "Ghi nhận thanh toán\nvà cập nhật trạng thái" as UC_08d
-
-    usecase "Thông báo kết quả\nthanh toán" as UC_08e
+  ' --- extend: tùy chọn / ngoại lệ ---
+  usecase "Thanh toán lại đơn hàng\n(khi PAYMENT_FAILED)" as UC_08d
 }
 
-Customer --> UC_07
 Customer --> UC_08
 
-UC_09 ..> UC_07 : <<extend>>
-note right of UC_09
-  FR-09 / AF-1: mã được nhập ở giỏ hàng và gửi kèm
-  POST /orders (UC-07), trước khi đơn chuyển PENDING;
-  không sửa total khi đơn đã PENDING.
-end note
-
-UC_08 ..> UC_08b : <<include>>
 UC_08 ..> UC_08c : <<include>>
+UC_08 ..> UC_08b : <<include>>
 UC_08 ..> UC_08a : <<include>>
-UC_08 ..> UC_08d : <<include>>
-UC_08 ..> UC_08e : <<include>>
+
+UC_08d .up.> UC_08 : <<extend>>
 
 UC_08a --> PaymentGateway
 @enduml

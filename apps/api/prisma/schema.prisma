@@ -1,0 +1,221 @@
+// BrewLite – Prisma schema
+// Nguồn nghiệp vụ: docs/requirements/srs.md, docs/diagrams/class-diagram.puml
+// Ghi chú:
+// - Field và tên khóa chính theo đúng class diagram (userId, productId, orderId, ...).
+// - Payment @@unique(userId, orderId, idempotencyKey) chặn xử lý thanh toán lặp (FR-06).
+// - Cart/CartItem là state phía client, không có bảng trong CSDL (FR-03).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  STAFF
+}
+
+enum ProductStatus {
+  ACTIVE
+  HIDDEN
+}
+
+enum OptionType {
+  SIZE
+  TOPPING
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  PAYMENT_FAILED
+  PREPARING
+  READY
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  WALLET
+  CARD
+}
+
+enum PaymentStatus {
+  INITIATED
+  PAID
+  FAILED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+enum PromotionStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum LoyaltyType {
+  EARN
+  REVERSAL
+}
+
+model User {
+  userId       String   @id @default(uuid()) @db.Uuid
+  username     String   @db.VarChar(50)
+  email        String   @unique @db.VarChar(255)
+  passwordHash String   @db.VarChar(255)
+  role         UserRole @default(CUSTOMER)
+  isActive     Boolean  @default(true)
+  // Giá trị dẫn xuất (cache) từ LoyaltyTransaction, cập nhật cùng transaction
+  // với việc INSERT LoyaltyTransaction, sau khi thanh toán đã commit (FR-10).
+  loyaltyPoints Int     @default(0)
+
+  orders              Order[]
+  payments            Payment[]
+  loyaltyTransactions LoyaltyTransaction[]
+
+  @@index([role])
+}
+
+model Product {
+  productId   String        @id @default(uuid()) @db.Uuid
+  name        String        @db.VarChar(120)
+  description String        @db.Text
+  basePrice   Decimal       @db.Decimal(12, 2)
+  imageUrl    String        @db.VarChar(500)
+  // Tồn kho chỉ quản lý ở Product.stock; Size/Topping không có kho riêng (FR-02).
+  // Trừ kho kết hợp optimistic locking (version) và điều kiện: where { productId, version, stock: { gte: qty } } (CV18, NFR-05).
+  stock       Int           @default(0)
+  version     Int           @default(0)
+  status      ProductStatus @default(ACTIVE)
+
+  options    ProductOption[]
+  orderItems OrderItem[]
+
+  @@index([status])
+  @@index([name])
+}
+
+model ProductOption {
+  optionId        String     @id @default(uuid()) @db.Uuid
+  productId       String     @db.Uuid
+  name            String     @db.VarChar(60)
+  type            OptionType
+  priceAdjustment Decimal    @default(0) @db.Decimal(12, 2)
+  isAvailable     Boolean    @default(true)
+
+  product Product @relation(fields: [productId], references: [productId], onDelete: Cascade)
+
+  @@unique([productId, name, type])
+  @@index([productId])
+}
+
+model Order {
+  orderId        String      @id @default(uuid()) @db.Uuid
+  orderCode      String      @unique @db.VarChar(32)
+  userId         String      @db.Uuid
+  promotionId    String?     @db.Uuid
+  subtotal       Decimal     @db.Decimal(12, 2)
+  discountAmount Decimal     @default(0) @db.Decimal(12, 2)
+  totalAmount    Decimal     @db.Decimal(12, 2)
+  status         OrderStatus @default(PENDING)
+  createdAt      DateTime    @default(now())
+
+  user                User                 @relation(fields: [userId], references: [userId], onDelete: Restrict)
+  promotion           Promotion?           @relation(fields: [promotionId], references: [promotionId], onDelete: SetNull)
+  items               OrderItem[]
+  payments            Payment[]
+  loyaltyTransactions LoyaltyTransaction[]
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@index([promotionId])
+}
+
+model OrderItem {
+  orderItemId String  @id @default(uuid()) @db.Uuid
+  orderId     String  @db.Uuid
+  productId   String  @db.Uuid
+  productName String  @db.VarChar(120)
+  quantity    Int
+  unitPrice   Decimal @db.Decimal(12, 2)
+  subtotal    Decimal @db.Decimal(12, 2)
+
+  order   Order             @relation(fields: [orderId], references: [orderId], onDelete: Cascade)
+  product Product           @relation(fields: [productId], references: [productId], onDelete: Restrict)
+  options OrderItemOption[]
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+// Snapshot tên/giá option tại thời điểm đặt đơn (FR-07) — không FK tới ProductOption.
+model OrderItemOption {
+  orderItemOptionId String     @id @default(uuid()) @db.Uuid
+  orderItemId       String     @db.Uuid
+  optionName        String     @db.VarChar(60)
+  optionType        OptionType
+  priceAdjustment   Decimal    @db.Decimal(12, 2)
+
+  orderItem OrderItem @relation(fields: [orderItemId], references: [orderItemId], onDelete: Cascade)
+
+  @@index([orderItemId])
+}
+
+model Payment {
+  paymentId            String        @id @default(uuid()) @db.Uuid
+  userId               String        @db.Uuid
+  orderId              String        @db.Uuid
+  idempotencyKey       String        @db.VarChar(64)
+  amount               Decimal       @db.Decimal(12, 2)
+  method               PaymentMethod
+  status               PaymentStatus @default(INITIATED)
+  transactionReference String?       @db.VarChar(128)
+  createdAt            DateTime      @default(now())
+
+  user  User  @relation(fields: [userId], references: [userId], onDelete: Restrict)
+  order Order @relation(fields: [orderId], references: [orderId], onDelete: Restrict)
+
+  // Chốt chặn cuối cùng cho retry đồng thời cùng một lần thanh toán.
+  @@unique([userId, orderId, idempotencyKey])
+  @@index([orderId, status])
+  @@index([userId, createdAt])
+}
+
+model Promotion {
+  promotionId        String          @id @default(uuid()) @db.Uuid
+  code               String          @unique @db.VarChar(32)
+  discountType       DiscountType
+  discountValue      Decimal         @db.Decimal(12, 2)
+  maxDiscount        Decimal?        @db.Decimal(12, 2)
+  minimumOrderAmount Decimal         @default(0) @db.Decimal(12, 2)
+  startAt            DateTime
+  endAt              DateTime
+  status             PromotionStatus @default(ACTIVE)
+
+  orders Order[]
+
+  @@index([status, startAt, endAt])
+}
+
+model LoyaltyTransaction {
+  transactionId String      @id @default(uuid()) @db.Uuid
+  userId        String      @db.Uuid
+  orderId       String      @db.Uuid
+  points        Int
+  type          LoyaltyType
+  createdAt     DateTime    @default(now())
+
+  user  User  @relation(fields: [userId], references: [userId], onDelete: Restrict)
+  order Order @relation(fields: [orderId], references: [orderId], onDelete: Restrict)
+
+  // Mỗi đơn tối đa một EARN và một REVERSAL (FR-10).
+  @@unique([orderId, type])
+  @@index([userId, createdAt])
+}

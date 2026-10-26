@@ -19,6 +19,7 @@ export function CheckoutView() {
   const authHydrated = useAuthStore((state) => state.hasHydrated);
   const clearAuth = useAuthStore((state) => state.clearAuth);
 
+
   // Cart store
   const items = useCartStore((state) => state.items);
   const subtotal = useCartStore(selectCartSubtotal);
@@ -28,7 +29,6 @@ export function CheckoutView() {
   // Checkout states
   const [method, setMethod] = useState<PaymentMethod>('WALLET');
   const [promoCode, setPromoCode] = useState('');
-  const [simulateFailure, setSimulateFailure] = useState(false);
   const [appliedPromo, setAppliedPromo] = useState<{
     code: string;
     discountAmount: number;
@@ -51,6 +51,7 @@ export function CheckoutView() {
   } | null>(null);
 
   const [copiedCode, setCopiedCode] = useState(false);
+  const [simulateFailure, setSimulateFailure] = useState(false)
 
   // Số tiền giảm giá và tổng tiền thanh toán sau khi trừ voucher
   const discountAmount = appliedPromo?.discountAmount ?? 0;
