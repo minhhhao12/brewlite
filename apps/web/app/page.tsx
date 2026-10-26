@@ -35,11 +35,11 @@ export default function HomePage() {
 
           <div className="grid grid-cols-2 gap-3 text-coffee-900">
             <div className="col-span-2 rounded-3xl bg-cream/95 p-5 shadow-card">
-              <p className="text-sm font-semibold text-coffee-500">BrewLite gợi ý</p>
+              <p className="text-sm font-semibold text-coffee-500"> Gợi ý:</p>
               <p className="mt-2 text-xl font-semibold">Một ly đúng gu, một ngày trọn vị.</p>
               <p className="mt-2 text-sm leading-6 text-coffee-600">
                 Cà phê phin, trà trái cây và matcha – tất cả đều có size và topping
-                để bạn tự phối.
+                để bạn lựa chọn.
               </p>
             </div>
             <div className="rounded-3xl bg-amber-200/95 p-5">

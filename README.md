@@ -26,11 +26,9 @@ BrewLite là ứng dụng đặt đồ uống theo hướng **mobile-first / PWA
 
 | Nhóm | Đã có | Chưa có |
 | :--- | :--- | :--- |
-| Giao diện web | Menu (`/`), chi tiết món + chọn size/topping (`/products/:id`), giỏ hàng (`/cart`), đăng ký (`/register`), đăng nhập (`/login`) | Trang thanh toán, trang xác nhận đơn, lịch sử đơn |
+| Giao diện web | Menu (`/`), chi tiết món + chọn size/topping (`/products/:id`), giỏ hàng (`/cart`), đăng ký (`/register`), đăng nhập (`/login`) |  Lọc theo sản phẩm, tìm kiếm sản phẩm|
 | API | Sản phẩm, đăng ký/đăng nhập (JWT), tạo/xem/hủy đơn, cập nhật trạng thái đơn (nhân viên), thanh toán mô phỏng có `Idempotency-Key`, mã khuyến mãi khi tạo đơn | Cộng điểm tích lũy sau khi thanh toán |
 | Hệ thống | Docker Compose chạy PostgreSQL + API + Web, tự migrate và seed; CI trên GitHub Actions | Triển khai production (xem [`docs/deployment.md`](./docs/deployment.md)) |
-
-**Hạn chế đã biết:** `POST /payments` hiện **chưa yêu cầu đăng nhập** và chưa kiểm tra người gọi có phải chủ đơn hay không (thiết kế trong [`sequence-checkout.puml`](./docs/diagrams/sequence-checkout.puml) yêu cầu JWT). Đây là việc cần bổ sung trước khi đưa vào sử dụng thật.
 
 ## 2. Cấu trúc repository
 
@@ -71,9 +69,9 @@ brewlite/
 
 ### Cách khuyến nghị: chạy hoàn toàn bằng Docker
 
-Chỉ cần **Docker Desktop / Docker Engine / OrbStack** đang chạy (Docker Compose v2, BuildKit mặc định) và **Git**. Không cần cài Node.js, pnpm hay PostgreSQL trên máy.
+Chỉ cần **Docker Desktop / Docker Engine / OrbStack** đang chạy  và **Git**.
 
-Máy cần trống các cổng **3000** (API), **3001** (Web), **5432** (PostgreSQL), hoặc đổi cổng trong file `.env` (xem mục 6).
+Máy cần trống các cổng **3000** (API), **3001** (Web), **5432** (PostgreSQL), hoặc có thể đổi cổng trong file `.env`.
 
 ### Cách tùy chọn: chạy trực tiếp trên máy host
 
@@ -89,8 +87,7 @@ Chỉ cần khi không dùng Docker cho API/Web, hoặc khi muốn chạy test n
 
 ```bash
 git clone https://github.com/minhhhao12/brewlite.git
-cd brewlite
-git checkout dev          # nhánh làm việc chung của nhóm
+cd brewlite         # nhánh làm việc chung của nhóm
 docker compose up --build
 ```
 
@@ -109,7 +106,6 @@ Lần build đầu mất vài phút. Khi log API báo đã chạy và Web sẵn 
 | API | http://localhost:3000 |
 | Kiểm tra API | http://localhost:3000/health |
 
-Mở http://localhost:3001 phải thấy menu 12 món.
 
 ### 4.2. Các lần sau
 
@@ -203,7 +199,6 @@ Không có file `.env` thì Docker Compose dùng giá trị mặc định dướ
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` hoặc `error`. |
 | `PAYMENT_PROVIDER` | `mock` | Hiện chỉ hỗ trợ `mock`; giá trị khác trả `503` khi thanh toán. |
 
-`apps/api/.env.example` còn liệt kê `PAYMENT_MOCK_*` và `RUN_MIGRATIONS`, nhưng code hiện chưa đọc các biến này.
 
 ### Web: `apps/web/.env.local` (chỉ khi chạy trên host)
 
@@ -238,7 +233,6 @@ docker compose exec db psql -U brewlite -d brewlite \
   -c "UPDATE \"User\" SET role = 'STAFF' WHERE email = 'staff@brewlite.local';"
 ```
 
-Vai trò được đọc lại từ DB ở mỗi request nên không cần đăng nhập lại ([ADR-008](./docs/architecture/adr/008-auth-jwt-bcrypt.md)).
 
 ## 8. API
 
@@ -351,7 +345,7 @@ Kết quả đúng: lần 1 `reused=False`, lần 2 `reused=True`, hai `paymentI
 
 ### 10.1. Model chính
 
-`User`, `Product`, `ProductOption`, `Order`, `OrderItem`, `OrderItemOption`, `Payment`, `Promotion`, `LoyaltyTransaction`, `AuditLog` cùng các enum, theo [`class-diagram.puml`](./docs/diagrams/class-diagram.puml).
+`User`, `Product`, `ProductOption`, `Order`, `OrderItem`, `OrderItemOption`, `Payment`, `Promotion`, `LoyaltyTransaction`cùng các enum.
 
 Điểm quan trọng:
 
@@ -412,10 +406,9 @@ Cả API lẫn web đều dùng ValidationPipe/Filter lỗi toàn cục, CORS đ
 
 ## 13. Quy trình làm việc nhóm
 
-- Nhánh dùng chung là **`dev`**. Mỗi công việc làm trên **một nhánh riêng**, đặt tên `cvXX-ten-ngan` (ví dụ `cv17-idempotent-payments`).
+- Nhánh dùng chung là **`dev`**. Mỗi công việc làm trên **một nhánh riêng**.
 - Mở **Pull Request vào `dev`** (không phải `main`), mô tả ngắn thay đổi và cách đã kiểm tra. CI phải xanh trước khi gộp.
 - Trước khi tạo nhánh mới: `git checkout dev && git pull origin dev`.
-- Nếu `pnpm-lock.yaml` bị xung đột khi gộp: chọn bản của `dev`, chạy `pnpm install` để sinh lại rồi commit. CI dùng `--frozen-lockfile` nên lockfile phải khớp `package.json`.
 
 ## 14. Xử lý sự cố thường gặp
 

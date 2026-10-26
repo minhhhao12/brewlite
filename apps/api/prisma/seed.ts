@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -23,7 +23,8 @@ const PRODUCTS: SeedProduct[] = [
     name: 'Cà phê sữa đá',
     description: 'Cà phê phin đậm vị, sữa đặc béo ngậy, đá mát lạnh.',
     basePrice: 29000,
-    imageUrl: 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=800&q=80',
+    imageUrl:
+      'https://images.unsplash.com/photo-1461023058943-07fcbe16d735?auto=format&fit=crop&w=800&q=80',
     stock: 50,
   },
   {
@@ -31,7 +32,8 @@ const PRODUCTS: SeedProduct[] = [
     name: 'Cà phê đen đá',
     description: 'Cà phê nguyên chất rang mộc, hương thơm và hậu vị sâu.',
     basePrice: 25000,
-    imageUrl: 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=800&q=80',
+    imageUrl:
+      'https://images.unsplash.com/photo-1618183507099-4fa269f9b0ee?auto=format&fit=crop&w=800&q=80',
     stock: 50,
   },
   {
@@ -39,7 +41,8 @@ const PRODUCTS: SeedProduct[] = [
     name: 'Bạc xỉu',
     description: 'Nhiều sữa, ít cà phê, vị nhẹ nhàng dễ uống.',
     basePrice: 32000,
-    imageUrl: 'https://images.unsplash.com/photo-1461023058943-07fcbe16d735?auto=format&fit=crop&w=800&q=80',
+    imageUrl:
+      'https://images.unsplash.com/photo-1461023058943-07fcbe16d735?auto=format&fit=crop&w=800&q=80',
     stock: 40,
   },
   {
@@ -47,7 +50,8 @@ const PRODUCTS: SeedProduct[] = [
     name: 'Trà sữa trân châu',
     description: 'Trà đen đậm vị kết hợp sữa tươi và trân châu dai giòn.',
     basePrice: 39000,
-    imageUrl: 'https://images.unsplash.com/photo-1558857563-b371033873b8?auto=format&fit=crop&w=800&q=80',
+    imageUrl:
+      'https://images.unsplash.com/photo-1558857563-b371033873b8?auto=format&fit=crop&w=800&q=80',
     stock: 40,
   },
   {
@@ -55,7 +59,8 @@ const PRODUCTS: SeedProduct[] = [
     name: 'Trà đào cam sả',
     description: 'Trà đào thơm, cam tươi và sả tạo vị chua ngọt sảng khoái.',
     basePrice: 35000,
-    imageUrl: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?auto=format&fit=crop&w=800&q=80',
+    imageUrl:
+      'https://images.unsplash.com/photo-1676693420436-7fa448f054eb?auto=format&fit=crop&w=800&q=80',
     stock: 35,
   },
   {
@@ -63,7 +68,8 @@ const PRODUCTS: SeedProduct[] = [
     name: 'Matcha latte',
     description: 'Matcha Nhật Bản xay mịn, sữa tươi và lớp bọt mềm.',
     basePrice: 42000,
-    imageUrl: 'https://images.unsplash.com/photo-1515823064-d6e0c04616a7?auto=format&fit=crop&w=800&q=80',
+    imageUrl:
+      'https://images.unsplash.com/photo-1515823064-d6e0c04616a7?auto=format&fit=crop&w=800&q=80',
     stock: 30,
   },
   {
@@ -71,7 +77,8 @@ const PRODUCTS: SeedProduct[] = [
     name: 'Sữa tươi trân châu đường đen',
     description: 'Sữa tươi mát lạnh, trân châu đường đen và sốt caramel.',
     basePrice: 45000,
-    imageUrl: 'https://images.unsplash.com/photo-1525385133512-2f3bdd039054?auto=format&fit=crop&w=800&q=80',
+    imageUrl:
+      'https://images.unsplash.com/photo-1624781708944-041f4b7e4d09?auto=format&fit=crop&w=800&q=80',
     stock: 30,
   },
   {
@@ -79,7 +86,8 @@ const PRODUCTS: SeedProduct[] = [
     name: 'Cacao nóng',
     description: 'Cacao đậm đà, sữa nóng và chút bột quế.',
     basePrice: 30000,
-    imageUrl: 'https://images.unsplash.com/photo-1511381939415-e44015466834?auto=format&fit=crop&w=800&q=80',
+    imageUrl:
+      'https://images.unsplash.com/photo-1637572815755-c4b80092dce1?auto=format&fit=crop&w=800&q=80',
     stock: 25,
   },
   {
@@ -87,7 +95,8 @@ const PRODUCTS: SeedProduct[] = [
     name: 'Trà xanh chanh dây',
     description: 'Trà xanh thanh mát, chanh dây chua nhẹ và đá mát.',
     basePrice: 33000,
-    imageUrl: 'https://images.unsplash.com/photo-1556679343-c7306c1976bc?auto=format&fit=crop&w=800&q=80',
+    imageUrl:
+      'https://images.unsplash.com/photo-1786783506825-1bdc1d2acd72?auto=format&fit=crop&w=800&q=80',
     stock: 35,
   },
   {
@@ -95,7 +104,8 @@ const PRODUCTS: SeedProduct[] = [
     name: 'Cà phê muối',
     description: 'Cà phê rang đậm với lớp kem muối mặn ngọt cân bằng.',
     basePrice: 35000,
-    imageUrl: 'https://images.unsplash.com/photo-1517701550927-30cf4ba1dba5?auto=format&fit=crop&w=800&q=80',
+    imageUrl:
+      'https://images.unsplash.com/photo-1517701550927-30cf4ba1dba5?auto=format&fit=crop&w=800&q=80',
     stock: 45,
   },
   {
@@ -103,7 +113,8 @@ const PRODUCTS: SeedProduct[] = [
     name: 'Cold brew cam',
     description: 'Cold brew ủ lạnh 18 giờ kết hợp nước cam tươi.',
     basePrice: 38000,
-    imageUrl: 'https://images.unsplash.com/photo-1517701604599-bb29b565090c?auto=format&fit=crop&w=800&q=80',
+    imageUrl:
+      'https://images.unsplash.com/photo-1603048004567-8109c99d4e7d?auto=format&fit=crop&w=800&q=80',
     stock: 20,
   },
   {
@@ -111,7 +122,8 @@ const PRODUCTS: SeedProduct[] = [
     name: 'Sữa chua cà phê',
     description: 'Sữa chua mát, cà phê đậm và thạch giòn.',
     basePrice: 36000,
-    imageUrl: 'https://images.unsplash.com/photo-1505252585461-04db1eb84625?auto=format&fit=crop&w=800&q=80',
+    imageUrl:
+      'https://images.unsplash.com/photo-1505252585461-04db1eb84625?auto=format&fit=crop&w=800&q=80',
     stock: 25,
   },
 ];
@@ -239,7 +251,7 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
-  
+
 async function seedPaymentTestData(): Promise<void> {
   const testUserId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -275,9 +287,7 @@ async function seedPaymentTestData(): Promise<void> {
   });
 
   if (!product) {
-    throw new Error(
-      'Không tìm thấy sản phẩm thử nghiệm. Hãy chạy seedProducts() trước.',
-    );
+    throw new Error('Không tìm thấy sản phẩm thử nghiệm. Hãy chạy seedProducts() trước.');
   }
 
   for (const orderData of orders) {

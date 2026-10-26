@@ -281,7 +281,7 @@ export function CheckoutView() {
           Thanh toán đơn hàng
         </h1>
         <p className="mt-1 text-sm text-coffee-600">
-          Xác nhận thông tin đặt món và chọn phương thức thanh toán không tiền mặt bảo mật.
+          Xác nhận thông tin đặt món và chọn phương thức thanh toán.
         </p>
       </div>
 
@@ -313,10 +313,9 @@ export function CheckoutView() {
                 {errorMessage}
               </p>
               <div className="mt-3 flex items-center gap-2 text-xs font-semibold text-rose-800">
-                <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
                 <span>
-                  Giỏ hàng vẫn được bảo toàn nguyên vẹn ({items.length} món). Bạn có thể thử thanh
-                  toán lại ngay bên dưới.
+                  Giỏ hàng vẫn được giữ lại {items.length} món. Bạn có thể thử thanh toán lại để
+                  hoàn tất đơn hàng.
                 </span>
               </div>
             </div>
@@ -349,7 +348,7 @@ export function CheckoutView() {
                 <span className="text-xs text-coffee-500">Hình thức phục vụ</span>
                 <p className="mt-0.5 font-semibold text-coffee-900">Nhận tại quầy (Takeaway)</p>
                 <p className="text-xs text-emerald-700 font-medium">
-                  Pha chế tươi sau khi thanh toán
+                  Pha chế ngay sau khi thanh toán
                 </p>
               </div>
             </div>
@@ -448,11 +447,11 @@ export function CheckoutView() {
               <label className="flex cursor-pointer items-center justify-between gap-3">
                 <div>
                   <span className="text-xs font-semibold text-coffee-800">
-                    🛠️ Kiểm thử: Mô phỏng lỗi thanh toán (simulateFailure)
+                    Kiểm thử: Mô phỏng lỗi thanh toán (simulateFailure)
                   </span>
                   <p className="text-[11px] text-coffee-500">
                     Bật tùy chọn này để test trường hợp PAYMENT_FAILED (đơn hàng báo lỗi và giỏ hàng
-                    vẫn được giữ nguyên vẹn).
+                    vẫn được giữ).
                   </p>
                 </div>
                 <input
