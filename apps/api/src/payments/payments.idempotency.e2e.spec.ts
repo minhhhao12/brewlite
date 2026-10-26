@@ -109,6 +109,16 @@ class FakePrisma {
     },
   };
 
+  loyaltyTransaction = {
+    findUnique: async () => null,
+    create: async ({ data }: { data: any }) => ({ transactionId: randomUUID(), ...data }),
+  };
+
+  user = {
+    findUnique: async () => null,
+    update: async () => ({}),
+  };
+
   $transaction = <T>(callback: (tx: FakePrisma) => Promise<T>): Promise<T> => {
     const run = this.lock.then(() => callback(this));
     this.lock = run.catch(() => undefined);

@@ -6,13 +6,19 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { OptionType, OrderStatus, Prisma, UserRole } from '@prisma/client';
+import { LoyaltyService } from '../loyalty/loyalty.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { PromotionsService } from '../promotions/promotions.service';
 import { OrderStateMachine } from './domain/order-state-machine';
 import { CreateOrderDto } from './dto/create-order.dto';
 
 @Injectable()
 export class OrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly promotionsService: PromotionsService,
+    private readonly loyaltyService: LoyaltyService,
+  ) {}
 
   /**
    * Chuyển đổi bản ghi Order từ Prisma sang định dạng phản hồi chuẩn cho client.
@@ -216,39 +222,18 @@ export class OrdersService {
           });
         }
 
-        // Xử lý mã khuyến mãi (FR-09)
+        // Xử lý mã khuyến mãi (FR-09 / CV21)
         let discountAmount = 0;
         let promotionId: string | undefined = undefined;
 
         if (dto.promoCode) {
-          const code = dto.promoCode.trim().toUpperCase();
-          const now = new Date();
-          const promo = await tx.promotion.findUnique({
-            where: { code },
-          });
-
-          if (
-            !promo ||
-            promo.status !== 'ACTIVE' ||
-            promo.startAt > now ||
-            promo.endAt < now ||
-            subtotal < promo.minimumOrderAmount.toNumber()
-          ) {
-            throw new BadRequestException(
-              'Mã khuyến mãi không hợp lệ, đã hết hạn hoặc không đủ điều kiện áp dụng.',
-            );
-          }
-
-          const promoVal = promo.discountValue.toNumber();
-          let discount =
-            promo.discountType === 'PERCENTAGE' ? (subtotal * promoVal) / 100 : promoVal;
-
-          if (promo.maxDiscount) {
-            discount = Math.min(discount, promo.maxDiscount.toNumber());
-          }
-          discount = Math.min(discount, subtotal);
-          discountAmount = discount;
-          promotionId = promo.promotionId;
+          const promoResult = await this.promotionsService.applyPromotion(
+            dto.promoCode,
+            subtotal,
+            tx,
+          );
+          discountAmount = promoResult.discountAmount;
+          promotionId = promoResult.promotionId;
         }
 
         const totalAmount = Math.max(0, subtotal - discountAmount);
@@ -431,6 +416,11 @@ export class OrdersService {
             version: { increment: 1 },
           },
         });
+      }
+
+      // FR-10: Hoàn lại điểm tích lũy nếu đơn hàng đã PAID bị hủy
+      if (order.status === OrderStatus.PAID) {
+        await this.loyaltyService.reversePoints(order.userId, order.orderId);
       }
 
       const updated = await tx.order.findUniqueOrThrow({

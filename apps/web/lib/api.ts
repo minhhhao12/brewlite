@@ -205,6 +205,22 @@ export const api = {
         idempotencyKey,
       }),
     }),
+
+  // Kiểm tra mã khuyến mãi và tính trước giảm giá (CV21)
+  validatePromotion: (
+    code: string,
+    subtotal: number,
+  ): Promise<{
+    valid: boolean;
+    code: string;
+    discountAmount: number;
+    message?: string;
+  }> =>
+    request('/promotions/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, subtotal }),
+    }),
 };
 
 export { API_URL };
