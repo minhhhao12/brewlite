@@ -53,6 +53,9 @@ export function CheckoutView() {
   const [copiedCode, setCopiedCode] = useState(false);
   const [simulateFailure, setSimulateFailure] = useState(false)
 
+  // Chế độ kiểm thử: mô phỏng thanh toán thất bại (PAYMENT_FAILED)
+  const [simulateFailure, setSimulateFailure] = useState(false);
+
   // Số tiền giảm giá và tổng tiền thanh toán sau khi trừ voucher
   const discountAmount = appliedPromo?.discountAmount ?? 0;
   const finalTotal = Math.max(0, subtotal - discountAmount);
@@ -268,10 +271,10 @@ export function CheckoutView() {
         typeof crypto !== 'undefined' && crypto.randomUUID
           ? crypto.randomUUID()
           : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-              const r = (Math.random() * 16) | 0;
-              const v = c === 'x' ? r : (r & 0x3) | 0x8;
-              return v.toString(16);
-            });
+            const r = (Math.random() * 16) | 0;
+            const v = c === 'x' ? r : (r & 0x3) | 0x8;
+            return v.toString(16);
+          });
 
       // 3. Gửi yêu cầu thanh toán kèm Idempotency-Key
       const paymentResponse: PaymentResponse = await api.createPayment(
@@ -440,11 +443,10 @@ export function CheckoutView() {
             <div className="mt-5 space-y-3">
               {/* Lựa chọn 1: Ví điện tử */}
               <label
-                className={`relative flex cursor-pointer items-start gap-4 rounded-2xl border p-4 transition ${
-                  method === 'WALLET'
-                    ? 'border-coffee-800 bg-coffee-50/60 ring-2 ring-coffee-800/20'
-                    : 'border-coffee-200/80 bg-white hover:bg-cream/20'
-                }`}
+                className={`relative flex cursor-pointer items-start gap-4 rounded-2xl border p-4 transition ${method === 'WALLET'
+                  ? 'border-coffee-800 bg-coffee-50/60 ring-2 ring-coffee-800/20'
+                  : 'border-coffee-200/80 bg-white hover:bg-cream/20'
+                  }`}
               >
                 <input
                   type="radio"
@@ -474,11 +476,10 @@ export function CheckoutView() {
 
               {/* Lựa chọn 2: Thẻ ngân hàng */}
               <label
-                className={`relative flex cursor-pointer items-start gap-4 rounded-2xl border p-4 transition ${
-                  method === 'CARD'
-                    ? 'border-coffee-800 bg-coffee-50/60 ring-2 ring-coffee-800/20'
-                    : 'border-coffee-200/80 bg-white hover:bg-cream/20'
-                }`}
+                className={`relative flex cursor-pointer items-start gap-4 rounded-2xl border p-4 transition ${method === 'CARD'
+                  ? 'border-coffee-800 bg-coffee-50/60 ring-2 ring-coffee-800/20'
+                  : 'border-coffee-200/80 bg-white hover:bg-cream/20'
+                  }`}
               >
                 <input
                   type="radio"
@@ -678,11 +679,10 @@ export function CheckoutView() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className={`w-full rounded-full py-4 text-center text-sm font-semibold transition shadow-sm ${
-                isSubmitting
-                  ? 'cursor-not-allowed bg-coffee-300 text-white'
-                  : 'bg-coffee-800 text-cream hover:bg-coffee-700'
-              }`}
+              className={`w-full rounded-full py-4 text-center text-sm font-semibold transition shadow-sm ${isSubmitting
+                ? 'cursor-not-allowed bg-coffee-300 text-white'
+                : 'bg-coffee-800 text-cream hover:bg-coffee-700'
+                }`}
             >
               {isSubmitting ? (
                 <span className="inline-flex items-center gap-2">
