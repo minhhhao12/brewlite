@@ -19,7 +19,6 @@ export function CheckoutView() {
   const authHydrated = useAuthStore((state) => state.hasHydrated);
   const clearAuth = useAuthStore((state) => state.clearAuth);
 
-
   // Cart store
   const items = useCartStore((state) => state.items);
   const subtotal = useCartStore(selectCartSubtotal);
@@ -51,7 +50,6 @@ export function CheckoutView() {
   } | null>(null);
 
   const [copiedCode, setCopiedCode] = useState(false);
-  const [simulateFailure, setSimulateFailure] = useState(false)
 
   // Chế độ kiểm thử: mô phỏng thanh toán thất bại (PAYMENT_FAILED)
   const [simulateFailure, setSimulateFailure] = useState(false);
