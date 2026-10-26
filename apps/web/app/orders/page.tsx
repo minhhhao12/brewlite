@@ -97,9 +97,7 @@ export default function OrdersPage() {
         }
 
         if (error instanceof ApiError && error.status === 401) {
-          setErrorMessage(
-            'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.',
-          );
+          router.replace('/login?redirect=%2Forders')
         } else if (error instanceof ApiError) {
           setErrorMessage(error.message || 'Không thể tải lịch sử đơn hàng.');
         } else {
