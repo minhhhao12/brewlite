@@ -11,16 +11,24 @@ export function SiteHeader() {
   const clearAuth = useAuthStore((state) => state.clearAuth);
   const authHydrated = useAuthStore((state) => state.hasHydrated);
 
-  return (
-    <header className="sticky top-0 z-40 border-b border-coffee-100/80 bg-cream/90 backdrop-blur">
+  return(
+   <header className="sticky top-0 z-40 border-b border-coffee-100/80 bg-cream/90 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
-        <Link href="/" className="flex items-center gap-2.5" aria-label="BrewLite – về trang chủ">
+        {/* Logo */}
+        <Link
+          href="/"
+          className="flex items-center gap-2.5"
+          aria-label="BrewLite – về trang chủ"
+        >
           <span className="grid h-9 w-9 place-items-center rounded-full bg-coffee-800 text-sm font-bold text-cream">
             B
           </span>
-          <span className="text-lg font-semibold tracking-tight">BrewLite</span>
+          <span className="text-lg font-semibold tracking-tight">
+            BrewLite
+          </span>
         </Link>
 
+        {/* Navigation */}
         <nav className="flex items-center gap-2 text-sm font-medium">
           <Link
             href="/"
@@ -28,11 +36,24 @@ export function SiteHeader() {
           >
             Menu
           </Link>
+
+          {/* Order history: logged-in users only */}
+          {authHydrated && user && (
+            <Link
+              href="/orders"
+              className="rounded-full px-3 py-2 text-coffee-700 transition hover:bg-coffee-100 hover:text-coffee-900"
+            >
+              Lịch sử đơn hàng
+            </Link>
+          )}
+
+          {/* Authentication */}
           {authHydrated && user ? (
             <div className="flex items-center gap-2">
               <span className="hidden text-xs font-semibold text-coffee-800 md:inline-block">
                 {user.username || user.email.split('@')[0]}
               </span>
+
               <button
                 type="button"
                 onClick={() => clearAuth()}
@@ -50,10 +71,15 @@ export function SiteHeader() {
             </Link>
           ) : null}
 
+          {/* Cart */}
           <Link
             href="/cart"
             className="relative grid h-10 w-10 place-items-center rounded-full bg-coffee-800 text-cream transition hover:bg-coffee-700"
-            aria-label={cartHydrated && itemCount > 0 ? `Giỏ hàng, ${itemCount} món` : 'Giỏ hàng'}
+            aria-label={
+              cartHydrated && itemCount > 0
+                ? `Giỏ hàng, ${itemCount} món`
+                : 'Giỏ hàng'
+            }
           >
             <svg
               aria-hidden="true"
@@ -69,14 +95,15 @@ export function SiteHeader() {
               <circle cx="10" cy="20" r="1.4" />
               <circle cx="18" cy="20" r="1.4" />
             </svg>
-            {cartHydrated && itemCount > 0 ? (
+
+            {cartHydrated && itemCount > 0 && (
               <span
                 data-testid="cart-badge"
                 className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-amber-400 px-1 text-[11px] font-bold leading-none text-coffee-900 shadow-sm"
               >
                 {itemCount > 99 ? '99+' : itemCount}
               </span>
-            ) : null}
+            )}
           </Link>
         </nav>
       </div>

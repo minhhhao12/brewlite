@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import './globals.css';
+import "./globals.css";
 import { SiteFooter } from '@/components/site-footer';
 import { SiteHeader } from '@/components/site-header';
 import { Providers } from './providers';
