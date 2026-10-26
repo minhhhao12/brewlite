@@ -19,8 +19,8 @@ export default function HomePage() {
               Đồ uống pha đúng gu, nhận ngay tại quầy.
             </h1>
             <p className="mt-5 max-w-lg text-base leading-7 text-cream/80">
-              Chọn món, tùy chỉnh size và topping, thanh toán online. BrewLite
-              giữ đơn của bạn trong vài bước thật gọn.
+              Chọn món, tùy chỉnh size và topping, thanh toán online. BrewLite giúp bạn đặt đơn chỉ
+              trong vài bước.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <a
@@ -38,17 +38,12 @@ export default function HomePage() {
               <p className="text-sm font-semibold text-coffee-500"> Gợi ý:</p>
               <p className="mt-2 text-xl font-semibold">Một ly đúng gu, một ngày trọn vị.</p>
               <p className="mt-2 text-sm leading-6 text-coffee-600">
-                Cà phê phin, trà trái cây và matcha – tất cả đều có size và topping
-                để bạn lựa chọn.
+                Cà phê phin, trà trái cây và matcha – tất cả đều có size và topping để bạn lựa chọn.
               </p>
             </div>
             <div className="rounded-3xl bg-amber-200/95 p-5">
               <p className="text-3xl font-semibold">12+</p>
               <p className="mt-1 text-sm font-medium text-coffee-700">món trong menu</p>
-            </div>
-            <div className="rounded-3xl bg-coffee-100/95 p-5">
-              <p className="text-3xl font-semibold">100%</p>
-              <p className="mt-1 text-sm font-medium text-coffee-700">không tiền mặt</p>
             </div>
           </div>
         </div>
@@ -57,14 +52,11 @@ export default function HomePage() {
       <section id="menu" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-12 sm:px-6 lg:py-16">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-coffee-500">
-              Menu
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-coffee-500">Menu</p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
               Chọn món bạn thích
             </h2>
           </div>
-    
         </div>
 
         <ProductGrid />
