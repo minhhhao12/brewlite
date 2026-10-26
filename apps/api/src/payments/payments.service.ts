@@ -12,6 +12,7 @@ import {
   PaymentStatus,
   Prisma,
 } from '@prisma/client';
+import { LoyaltyService } from '../loyalty/loyalty.service';
 import { OrderStateMachine } from '../orders/domain/order-state-machine';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePaymentDto } from './dto/create-payments.dto';
@@ -24,6 +25,7 @@ export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly loyaltyService: LoyaltyService,
   ) {}
 
   async create(dto: CreatePaymentInput) {
@@ -150,6 +152,23 @@ export class PaymentsService {
           reused: false,
         };
       });
+
+      // FR-10: Sau commit PENDING -> PAID, cộng loyaltyPoints cho user (idempotent theo orderId)
+      if (result.orderStatus === OrderStatus.PAID) {
+        try {
+          const totalAmountNum =
+            order.totalAmount instanceof Prisma.Decimal
+              ? order.totalAmount.toNumber()
+              : Number(order.totalAmount);
+          await this.loyaltyService.earnPoints(
+            order.userId,
+            order.orderId,
+            totalAmountNum,
+          );
+        } catch (_loyaltyError) {
+          // Ghi nhận lỗi nhưng không rollback giao dịch thanh toán đã commit
+        }
+      }
 
       return result;
     } catch (error) {

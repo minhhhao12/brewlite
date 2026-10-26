@@ -17,6 +17,7 @@ export function CheckoutView() {
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
   const authHydrated = useAuthStore((state) => state.hasHydrated);
+  const clearAuth = useAuthStore((state) => state.clearAuth);
 
   // Cart store
   const items = useCartStore((state) => state.items);
@@ -26,7 +27,13 @@ export function CheckoutView() {
 
   // Checkout states
   const [method, setMethod] = useState<PaymentMethod>('WALLET');
-  const [simulateFailure, setSimulateFailure] = useState(false);
+  const [promoCode, setPromoCode] = useState('');
+  const [appliedPromo, setAppliedPromo] = useState<{
+    code: string;
+    discountAmount: number;
+  } | null>(null);
+  const [promoError, setPromoError] = useState<string | null>(null);
+  const [isValidatingPromo, setIsValidatingPromo] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -43,11 +50,51 @@ export function CheckoutView() {
   } | null>(null);
 
   const [copiedCode, setCopiedCode] = useState(false);
+
+  // Số tiền giảm giá và tổng tiền thanh toán sau khi trừ voucher
+  const discountAmount = appliedPromo?.discountAmount ?? 0;
+  const finalTotal = Math.max(0, subtotal - discountAmount);
+
+  // Tự động kiểm tra và trừ tiền khi người dùng nhập mã voucher
+  useEffect(() => {
+    const cleanCode = promoCode.trim().toUpperCase();
+    if (!cleanCode) {
+      setAppliedPromo(null);
+      setPromoError(null);
+      setIsValidatingPromo(false);
+      return;
+    }
+
+    setIsValidatingPromo(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.validatePromotion(cleanCode, subtotal);
+        if (res.valid) {
+          setAppliedPromo({
+            code: res.code,
+            discountAmount: res.discountAmount,
+          });
+          setPromoError(null);
+        } else {
+          setAppliedPromo(null);
+          setPromoError(res.message || 'Mã không đủ điều kiện áp dụng.');
+        }
+      } catch {
+        setAppliedPromo(null);
+        setPromoError('Không thể kiểm tra mã khuyến mãi.');
+      } finally {
+        setIsValidatingPromo(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [promoCode, subtotal]);
+
   useEffect(() => {
     if (!token && authHydrated) {
       router.replace('/login?redirect=/checkout');
     }
-  }, [token, router]);
+  }, [token, authHydrated, router]);
 
   // Loading skeleton trong khi chờ hydrate auth & giỏ hàng
   if (!authHydrated || !cartHydrated) {
@@ -128,7 +175,13 @@ export function CheckoutView() {
                   {paymentSuccess.method === 'WALLET' ? 'Ví điện tử' : 'Thẻ ngân hàng'}
                 </span>
               </div>
-              <div className="flex justify-center text-coffee-700">
+              <div className="flex justify-between rounded-xl bg-amber-50 px-3 py-2 text-amber-900 border border-amber-200/60">
+                <span className="font-medium">Điểm thưởng tích lũy (FR-10)</span>
+                <span className="font-bold text-amber-800">
+                  +{Math.floor(paymentSuccess.amount / 10000)} điểm
+                </span>
+              </div>
+              <div className="flex justify-center text-coffee-700 pt-1">
                 <span>Chúc bạn có một trải nghiệm khó quên tại BrewLite!</span>
               </div>
             </div>
@@ -201,6 +254,7 @@ export function CheckoutView() {
             sizeOptionId: item.size?.id,
             toppingOptionIds: item.toppings.map((t) => t.id),
           })),
+          promoCode: appliedPromo?.code || (promoCode.trim() ? promoCode.trim() : undefined),
         });
         activeOrderId = orderResponse.id;
         orderCodeForReceipt = orderResponse.orderCode;
@@ -222,7 +276,7 @@ export function CheckoutView() {
         {
           orderId: activeOrderId,
           method,
-          simulateFailure,
+          simulateFailure: false,
         },
         idempotencyKey,
       );
@@ -246,11 +300,18 @@ export function CheckoutView() {
         setErrorMessage('Thanh toán bị từ chối hoặc thất bại. Bạn có thể thử lại!');
       }
     } catch (err) {
-      // LỖI HỆ THỐNG / MẠNG: GIỮ NGUYÊN GIỎ HÀNG
+      // LỖI HỆ THỐNG / MẠNG / XÁC THỰC: GIỮ NGUYÊN GIỎ HÀNG
       if (err instanceof ApiError) {
-        setErrorMessage(err.message || 'Thanh toán không thành công.');
+        if (err.status === 401) {
+          clearAuth();
+          setErrorMessage(
+            'Phiên đăng nhập đã hết hạn hoặc token không hợp lệ. Vui lòng bấm vào "Đăng nhập lại" bên dưới để tiếp tục.',
+          );
+        } else {
+          setErrorMessage(err.message || 'Thanh toán không thành công.');
+        }
       } else {
-        setErrorMessage('Không thể kết nối đến cổng thanh toán.');
+        setErrorMessage('Không thể kết nối đến máy chủ. Vui lòng kiểm tra mạng và thử lại.');
       }
     } finally {
       setIsSubmitting(false);
@@ -312,12 +373,21 @@ export function CheckoutView() {
               <p className="mt-1 text-xs sm:text-sm text-rose-700 leading-relaxed">
                 {errorMessage}
               </p>
-              <div className="mt-3 flex items-center gap-2 text-xs font-semibold text-rose-800">
-                <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
-                <span>
-                  Giỏ hàng vẫn được bảo toàn nguyên vẹn ({items.length} món). Bạn có thể thử thanh
-                  toán lại ngay bên dưới.
-                </span>
+              <div className="mt-3 flex flex-wrap items-center gap-3 text-xs font-semibold text-rose-800">
+                <div className="flex items-center gap-2">
+                  <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
+                  <span>
+                    Giỏ hàng vẫn được bảo toàn nguyên vẹn ({items.length} món).
+                  </span>
+                </div>
+                {(!token || errorMessage?.includes('đăng nhập')) && (
+                  <Link
+                    href="/login?redirect=/checkout"
+                    className="inline-flex items-center rounded-full bg-coffee-800 px-3.5 py-1 text-xs font-bold text-cream shadow-sm hover:bg-coffee-700 transition"
+                  >
+                    Đăng nhập lại ngay →
+                  </Link>
+                )}
               </div>
             </div>
           </div>
@@ -343,6 +413,11 @@ export function CheckoutView() {
                   {user?.username || user?.email.split('@')[0]}
                 </p>
                 <p className="text-xs text-coffee-600">{user?.email}</p>
+                {user?.loyaltyPoints !== undefined && (
+                  <p className="mt-1 text-xs font-semibold text-amber-800">
+                    Điểm tích lũy: {user.loyaltyPoints} điểm
+                  </p>
+                )}
               </div>
 
               <div className="rounded-2xl border border-coffee-100 bg-cream/30 p-3.5">
@@ -443,26 +518,7 @@ export function CheckoutView() {
               </label>
             </div>
 
-            {/* Chế độ kiểm thử: Mô phỏng thanh toán thất bại (rất tiện cho chấm bài & kiểm thử yêu cầu PAYMENT_FAILED) */}
-            <div className="mt-6 rounded-2xl border border-dashed border-coffee-200 bg-cream/40 p-4">
-              <label className="flex cursor-pointer items-center justify-between gap-3">
-                <div>
-                  <span className="text-xs font-semibold text-coffee-800">
-                    🛠️ Kiểm thử: Mô phỏng lỗi thanh toán (simulateFailure)
-                  </span>
-                  <p className="text-[11px] text-coffee-500">
-                    Bật tùy chọn này để test trường hợp PAYMENT_FAILED (đơn hàng báo lỗi và giỏ hàng
-                    vẫn được giữ nguyên vẹn).
-                  </p>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={simulateFailure}
-                  onChange={(e) => setSimulateFailure(e.target.checked)}
-                  className="h-4 w-4 rounded text-coffee-800 focus:ring-coffee-700"
-                />
-              </label>
-            </div>
+
           </div>
         </div>
 
@@ -509,12 +565,87 @@ export function CheckoutView() {
             ))}
           </div>
 
-          {/* Tính tiền */}
+          {/* Nhập mã khuyến mãi (FR-09 / CV21) */}
+          <div className="mt-4 rounded-2xl border border-coffee-100 bg-cream/20 p-3.5">
+            <div className="flex items-center justify-between">
+              <label htmlFor="promoCodeInput" className="block text-xs font-semibold text-coffee-800">
+                Mã khuyến mãi (Voucher)
+              </label>
+              {isValidatingPromo && (
+                <span className="text-[11px] text-coffee-500 animate-pulse">
+                  Đang kiểm tra mã...
+                </span>
+              )}
+            </div>
+            <div className="mt-1.5 flex gap-2">
+              <div className="relative flex-1">
+                <input
+                  id="promoCodeInput"
+                  type="text"
+                  placeholder="VD: WELCOME10"
+                  value={promoCode}
+                  onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                  className="w-full rounded-xl border border-coffee-200 bg-white px-3 py-2 pr-7 text-xs font-semibold uppercase tracking-wider text-coffee-900 focus:border-coffee-700 focus:outline-none"
+                />
+                {promoCode && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPromoCode('');
+                      setAppliedPromo(null);
+                      setPromoError(null);
+                    }}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-coffee-400 hover:text-coffee-700 text-xs font-bold"
+                    title="Xóa mã"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {appliedPromo && (
+              <p className="mt-2 text-xs font-semibold text-emerald-700 flex items-center gap-1">
+                <span>✓</span> Đã áp dụng mã {appliedPromo.code}: Giảm {formatVnd(appliedPromo.discountAmount)}
+              </p>
+            )}
+
+            {promoError && (
+              <p className="mt-2 text-xs font-medium text-rose-600 flex items-center gap-1">
+                <span>⚠️</span> {promoError}
+              </p>
+            )}
+          </div>
+
+          {/* Tính tiền & Chi tiết trừ voucher */}
           <div className="mt-4 space-y-2.5 text-sm">
             <div className="flex justify-between text-coffee-600">
               <span>Tạm tính</span>
               <span className="font-medium text-coffee-900">{formatVnd(subtotal)}</span>
             </div>
+
+            {appliedPromo && discountAmount > 0 && (
+              <div className="flex justify-between rounded-xl bg-emerald-50 px-3 py-2 text-emerald-800 border border-emerald-200/70">
+                <span className="flex items-center gap-1.5 font-medium">
+                  <svg
+                    className="h-4 w-4 text-emerald-600"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
+                    />
+                  </svg>
+                  Giảm giá voucher ({appliedPromo.code})
+                </span>
+                <span className="font-bold text-emerald-700">-{formatVnd(discountAmount)}</span>
+              </div>
+            )}
+
             <div className="flex justify-between text-coffee-600">
               <span>Phí dịch vụ</span>
               <span className="font-semibold text-emerald-700">Miễn phí</span>
@@ -526,7 +657,7 @@ export function CheckoutView() {
                 <p className="text-[11px] text-coffee-500">Đã bao gồm thuế VAT</p>
               </div>
               <span className="text-2xl font-bold tracking-tight text-coffee-900">
-                {formatVnd(subtotal)}
+                {formatVnd(finalTotal)}
               </span>
             </div>
           </div>
@@ -563,7 +694,7 @@ export function CheckoutView() {
                   Đang xử lý giao dịch an toàn...
                 </span>
               ) : (
-                `Xác nhận thanh toán • ${formatVnd(subtotal)}`
+                `Xác nhận thanh toán • ${formatVnd(finalTotal)}`
               )}
             </button>
 
