@@ -19,6 +19,7 @@ export function CheckoutView() {
   const authHydrated = useAuthStore((state) => state.hasHydrated);
   const clearAuth = useAuthStore((state) => state.clearAuth);
 
+
   // Cart store
   const items = useCartStore((state) => state.items);
   const subtotal = useCartStore(selectCartSubtotal);
@@ -50,6 +51,7 @@ export function CheckoutView() {
   } | null>(null);
 
   const [copiedCode, setCopiedCode] = useState(false);
+  const [simulateFailure, setSimulateFailure] = useState(false)
 
   // Số tiền giảm giá và tổng tiền thanh toán sau khi trừ voucher
   const discountAmount = appliedPromo?.discountAmount ?? 0;
@@ -276,7 +278,7 @@ export function CheckoutView() {
         {
           orderId: activeOrderId,
           method,
-          simulateFailure: false,
+          simulateFailure,
         },
         idempotencyKey,
       );
@@ -342,7 +344,7 @@ export function CheckoutView() {
           Thanh toán đơn hàng
         </h1>
         <p className="mt-1 text-sm text-coffee-600">
-          Xác nhận thông tin đặt món và chọn phương thức thanh toán không tiền mặt bảo mật.
+          Xác nhận thông tin đặt món và chọn phương thức thanh toán.
         </p>
       </div>
 
@@ -373,21 +375,11 @@ export function CheckoutView() {
               <p className="mt-1 text-xs sm:text-sm text-rose-700 leading-relaxed">
                 {errorMessage}
               </p>
-              <div className="mt-3 flex flex-wrap items-center gap-3 text-xs font-semibold text-rose-800">
-                <div className="flex items-center gap-2">
-                  <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
-                  <span>
-                    Giỏ hàng vẫn được bảo toàn nguyên vẹn ({items.length} món).
-                  </span>
-                </div>
-                {(!token || errorMessage?.includes('đăng nhập')) && (
-                  <Link
-                    href="/login?redirect=/checkout"
-                    className="inline-flex items-center rounded-full bg-coffee-800 px-3.5 py-1 text-xs font-bold text-cream shadow-sm hover:bg-coffee-700 transition"
-                  >
-                    Đăng nhập lại ngay →
-                  </Link>
-                )}
+              <div className="mt-3 flex items-center gap-2 text-xs font-semibold text-rose-800">
+                <span>
+                  Giỏ hàng vẫn được giữ lại {items.length} món. Bạn có thể thử thanh toán lại để
+                  hoàn tất đơn hàng.
+                </span>
               </div>
             </div>
           </div>
@@ -424,7 +416,7 @@ export function CheckoutView() {
                 <span className="text-xs text-coffee-500">Hình thức phục vụ</span>
                 <p className="mt-0.5 font-semibold text-coffee-900">Nhận tại quầy (Takeaway)</p>
                 <p className="text-xs text-emerald-700 font-medium">
-                  Pha chế tươi sau khi thanh toán
+                  Pha chế ngay sau khi thanh toán
                 </p>
               </div>
             </div>
@@ -518,7 +510,26 @@ export function CheckoutView() {
               </label>
             </div>
 
-
+            {/* Chế độ kiểm thử: Mô phỏng thanh toán thất bại (rất tiện cho chấm bài & kiểm thử yêu cầu PAYMENT_FAILED) */}
+            <div className="mt-6 rounded-2xl border border-dashed border-coffee-200 bg-cream/40 p-4">
+              <label className="flex cursor-pointer items-center justify-between gap-3">
+                <div>
+                  <span className="text-xs font-semibold text-coffee-800">
+                    Kiểm thử: Mô phỏng lỗi thanh toán (simulateFailure)
+                  </span>
+                  <p className="text-[11px] text-coffee-500">
+                    Bật tùy chọn này để test trường hợp PAYMENT_FAILED (đơn hàng báo lỗi và giỏ hàng
+                    vẫn được giữ).
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={simulateFailure}
+                  onChange={(e) => setSimulateFailure(e.target.checked)}
+                  className="h-4 w-4 rounded text-coffee-800 focus:ring-coffee-700"
+                />
+              </label>
+            </div>
           </div>
         </div>
 
