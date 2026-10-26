@@ -2,12 +2,18 @@ import { BadRequestException, ConflictException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { OrderStatus, PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
+import { LoyaltyService } from '../loyalty/loyalty.service';
 import { OrderStateMachine } from '../orders/domain/order-state-machine';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaymentsService } from './payments.service';
 
-describe('PaymentsService + OrderStateMachine (FR-06, FR-08)', () => {
+describe('PaymentsService + OrderStateMachine (FR-06, FR-08, FR-10)', () => {
   let service: PaymentsService;
+  let mockLoyaltyService: {
+    earnPoints: jest.Mock;
+    reversePoints: jest.Mock;
+    getPoints: jest.Mock;
+  };
   let prisma: {
     $transaction: jest.Mock;
     order: { findUnique: jest.Mock; updateMany: jest.Mock };
@@ -28,6 +34,12 @@ describe('PaymentsService + OrderStateMachine (FR-06, FR-08)', () => {
   };
 
   beforeEach(async () => {
+    mockLoyaltyService = {
+      earnPoints: jest.fn().mockResolvedValue({ transactionId: 'tx-1', points: 4 }),
+      reversePoints: jest.fn(),
+      getPoints: jest.fn(),
+    };
+
     prisma = {
       $transaction: jest.fn().mockImplementation(async (callback) => callback(prisma)),
       order: { findUnique: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
@@ -41,6 +53,7 @@ describe('PaymentsService + OrderStateMachine (FR-06, FR-08)', () => {
       providers: [
         PaymentsService,
         { provide: PrismaService, useValue: prisma },
+        { provide: LoyaltyService, useValue: mockLoyaltyService },
         // Dùng giá trị mặc định: PAYMENT_PROVIDER = mock, NODE_ENV = development.
         {
           provide: ConfigService,
@@ -71,6 +84,7 @@ describe('PaymentsService + OrderStateMachine (FR-06, FR-08)', () => {
     });
     expect(prisma.payment.create.mock.calls[0][0].data.status).toBe(PaymentStatus.PAID);
     expect(assertSpy).toHaveBeenCalledWith(OrderStatus.PENDING, OrderStatus.PAID);
+    expect(mockLoyaltyService.earnPoints).toHaveBeenCalledWith('user-1', 'order-1', 45000);
   });
 
   it('thanh toán thất bại đã xác minh: đơn PENDING -> PAYMENT_FAILED', async () => {
@@ -86,6 +100,7 @@ describe('PaymentsService + OrderStateMachine (FR-06, FR-08)', () => {
     });
     expect(prisma.payment.create.mock.calls[0][0].data.status).toBe(PaymentStatus.FAILED);
     expect(assertSpy).toHaveBeenCalledWith(OrderStatus.PENDING, OrderStatus.PAYMENT_FAILED);
+    expect(mockLoyaltyService.earnPoints).not.toHaveBeenCalled();
   });
 
   it('thử lại sau khi thất bại: PAYMENT_FAILED -> PENDING -> PAID trên cùng đơn', async () => {
