@@ -168,6 +168,11 @@ export const api = {
 
   getOrderById: (id: string): Promise<Order> => request<Order>(`/orders/${encodeURIComponent(id)}`),
 
+  cancelOrder: (id: string): Promise<Order> =>
+    request<Order>(`/orders/${encodeURIComponent(id)}/cancel`, {
+      method: 'POST',
+    }),
+
   createOrder: (payload: {
     items: Array<{
       productId: string;

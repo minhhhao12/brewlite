@@ -62,6 +62,7 @@ export type OrderItem = {
   quantity: number;
   unitPrice: number | string;
   subtotal: number | string;
+  imageUrl?: string;
   options?: OrderItemOption[];
 };
 
@@ -75,6 +76,10 @@ export type Order = {
   status: string;
   createdAt: string;
   items?: OrderItem[];
+  promotion?: {
+    code?: string;
+    description?: string;
+  } | null;
 };
 
 export type PaymentMethod = 'WALLET' | 'CARD';
