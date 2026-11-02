@@ -35,6 +35,7 @@ type RawProduct = {
   basePrice?: number | string;
   imageUrl?: string;
   stock?: number;
+  missingIngredients?: string[];
   status?: 'ACTIVE' | 'HIDDEN';
   options?:
     | ProductOption[]
@@ -111,6 +112,7 @@ export const api = {
         price: Number(raw.price ?? raw.basePrice ?? 0),
         imageUrl: raw.imageUrl ?? '',
         stock: raw.stock ?? 0,
+        missingIngredients: raw.missingIngredients ?? [],
         status: raw.status ?? 'ACTIVE',
         options: optionsList,
       };
@@ -141,6 +143,7 @@ export const api = {
       price: Number(raw.price ?? raw.basePrice ?? 0),
       imageUrl: raw.imageUrl ?? '',
       stock: raw.stock ?? 0,
+      missingIngredients: raw.missingIngredients ?? [],
       status: raw.status ?? 'ACTIVE',
       options: optionsList,
     };

@@ -11,6 +11,9 @@ const OPTIONS_INCLUDE = {
   ],
 };
 
+/** Công thức kèm tồn kho nguyên liệu, để biết món còn pha được không (không bán khi thiếu nguyên liệu). */
+const INGREDIENTS_INCLUDE = { include: { ingredient: true } };
+
 @Injectable()
 export class ProductsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -23,7 +26,7 @@ export class ProductsService {
     const products = await this.prisma.product.findMany({
       where: { status: 'ACTIVE' },
       orderBy: [{ name: 'asc' }],
-      include: { options: OPTIONS_INCLUDE },
+      include: { options: OPTIONS_INCLUDE, ingredients: INGREDIENTS_INCLUDE },
     });
 
     return products.map(toProductResponse);
@@ -35,7 +38,7 @@ export class ProductsService {
   async findOne(id: string): Promise<ProductResponse> {
     const product = await this.prisma.product.findFirst({
       where: { productId: id, status: 'ACTIVE' },
-      include: { options: OPTIONS_INCLUDE },
+      include: { options: OPTIONS_INCLUDE, ingredients: INGREDIENTS_INCLUDE },
     });
 
     if (!product) {

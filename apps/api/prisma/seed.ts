@@ -200,6 +200,100 @@ async function seedProducts(): Promise<void> {
   }
 }
 
+type SeedIngredient = { id: string; name: string; unit: string; stock: number };
+
+/** Kho nguyên liệu mẫu. Đơn vị: g, ml hoặc quả. */
+const INGREDIENTS: SeedIngredient[] = [
+  { id: '33333333-3333-4333-8333-000000000001', name: 'Cà phê rang xay', unit: 'g', stock: 2000 },
+  { id: '33333333-3333-4333-8333-000000000002', name: 'Sữa đặc', unit: 'ml', stock: 3000 },
+  { id: '33333333-3333-4333-8333-000000000003', name: 'Sữa tươi', unit: 'ml', stock: 20000 },
+  { id: '33333333-3333-4333-8333-000000000004', name: 'Trà đen', unit: 'g', stock: 1500 },
+  { id: '33333333-3333-4333-8333-000000000005', name: 'Bột matcha', unit: 'g', stock: 300 },
+  { id: '33333333-3333-4333-8333-000000000006', name: 'Trân châu', unit: 'g', stock: 4000 },
+  { id: '33333333-3333-4333-8333-000000000007', name: 'Đào ngâm', unit: 'miếng', stock: 150 },
+  { id: '33333333-3333-4333-8333-000000000008', name: 'Cam tươi', unit: 'quả', stock: 80 },
+  { id: '33333333-3333-4333-8333-000000000009', name: 'Bột cacao', unit: 'g', stock: 1000 },
+  { id: '33333333-3333-4333-8333-000000000010', name: 'Trà xanh', unit: 'g', stock: 1000 },
+  { id: '33333333-3333-4333-8333-000000000011', name: 'Chanh dây', unit: 'quả', stock: 60 },
+  { id: '33333333-3333-4333-8333-000000000012', name: 'Kem cheese', unit: 'g', stock: 2000 },
+  { id: '33333333-3333-4333-8333-000000000013', name: 'Sữa chua', unit: 'ml', stock: 4000 },
+];
+
+const ING = (n: number): string => INGREDIENTS[n - 1].id;
+const PROD = (n: number): string => `11111111-1111-4111-8111-${String(n).padStart(12, '0')}`;
+
+/** Công thức: lượng nguyên liệu cho 1 ly (khớp đơn vị của nguyên liệu). */
+const RECIPES: Array<{ productId: string; ingredientId: string; quantityPerServing: number }> = [
+  // Cà phê sữa đá
+  { productId: PROD(1), ingredientId: ING(1), quantityPerServing: 20 },
+  { productId: PROD(1), ingredientId: ING(2), quantityPerServing: 30 },
+  // Cà phê đen đá
+  { productId: PROD(2), ingredientId: ING(1), quantityPerServing: 25 },
+  // Bạc xỉu
+  { productId: PROD(3), ingredientId: ING(1), quantityPerServing: 10 },
+  { productId: PROD(3), ingredientId: ING(2), quantityPerServing: 30 },
+  { productId: PROD(3), ingredientId: ING(3), quantityPerServing: 60 },
+  // Trà sữa trân châu
+  { productId: PROD(4), ingredientId: ING(4), quantityPerServing: 8 },
+  { productId: PROD(4), ingredientId: ING(3), quantityPerServing: 100 },
+  { productId: PROD(4), ingredientId: ING(6), quantityPerServing: 50 },
+  // Trà đào cam sả
+  { productId: PROD(5), ingredientId: ING(4), quantityPerServing: 6 },
+  { productId: PROD(5), ingredientId: ING(7), quantityPerServing: 2 },
+  { productId: PROD(5), ingredientId: ING(8), quantityPerServing: 1 },
+  // Matcha latte
+  { productId: PROD(6), ingredientId: ING(5), quantityPerServing: 5 },
+  { productId: PROD(6), ingredientId: ING(3), quantityPerServing: 150 },
+  // Sữa tươi trân châu đường đen
+  { productId: PROD(7), ingredientId: ING(3), quantityPerServing: 180 },
+  { productId: PROD(7), ingredientId: ING(6), quantityPerServing: 60 },
+  // Cacao nóng
+  { productId: PROD(8), ingredientId: ING(9), quantityPerServing: 20 },
+  { productId: PROD(8), ingredientId: ING(3), quantityPerServing: 150 },
+  // Trà xanh chanh dây
+  { productId: PROD(9), ingredientId: ING(10), quantityPerServing: 6 },
+  { productId: PROD(9), ingredientId: ING(11), quantityPerServing: 1 },
+  // Cà phê muối
+  { productId: PROD(10), ingredientId: ING(1), quantityPerServing: 20 },
+  { productId: PROD(10), ingredientId: ING(3), quantityPerServing: 30 },
+  { productId: PROD(10), ingredientId: ING(12), quantityPerServing: 30 },
+  // Cold brew cam
+  { productId: PROD(11), ingredientId: ING(1), quantityPerServing: 25 },
+  { productId: PROD(11), ingredientId: ING(8), quantityPerServing: 1 },
+  // Sữa chua cà phê
+  { productId: PROD(12), ingredientId: ING(1), quantityPerServing: 15 },
+  { productId: PROD(12), ingredientId: ING(13), quantityPerServing: 150 },
+];
+
+async function seedIngredients(): Promise<void> {
+  for (const ingredient of INGREDIENTS) {
+    await prisma.ingredient.upsert({
+      where: { ingredientId: ingredient.id },
+      // Chạy lại seed đưa kho nguyên liệu về mức mẫu (giống Product.stock).
+      update: { name: ingredient.name, unit: ingredient.unit, stock: ingredient.stock },
+      create: {
+        ingredientId: ingredient.id,
+        name: ingredient.name,
+        unit: ingredient.unit,
+        stock: ingredient.stock,
+      },
+    });
+  }
+
+  for (const recipe of RECIPES) {
+    await prisma.productIngredient.upsert({
+      where: {
+        productId_ingredientId: {
+          productId: recipe.productId,
+          ingredientId: recipe.ingredientId,
+        },
+      },
+      update: { quantityPerServing: recipe.quantityPerServing },
+      create: recipe,
+    });
+  }
+}
+
 async function seedPromotions(): Promise<void> {
   await prisma.promotion.upsert({
     where: {
@@ -229,17 +323,19 @@ async function seedPromotions(): Promise<void> {
 
 async function main(): Promise<void> {
   await seedProducts();
+  await seedIngredients();
   await seedPromotions();
   await seedPaymentTestData();
 
-  const [productCount, optionCount, promotionCount] = await Promise.all([
+  const [productCount, optionCount, promotionCount, ingredientCount] = await Promise.all([
     prisma.product.count(),
     prisma.productOption.count(),
     prisma.promotion.count(),
+    prisma.ingredient.count(),
   ]);
 
   console.info(
-    `Seed hoàn tất: ${productCount} sản phẩm, ${optionCount} tùy chọn, ${promotionCount} khuyến mãi.`,
+    `Seed hoàn tất: ${productCount} sản phẩm, ${optionCount} tùy chọn, ${promotionCount} khuyến mãi, ${ingredientCount} nguyên liệu.`,
   );
 }
 

@@ -145,6 +145,10 @@ class FakePrismaOrders {
     findUnique: async () => null,
   };
 
+  // Các món trong test này không có công thức nguyên liệu.
+  productIngredient = { findMany: async () => [] };
+  orderIngredientUsage = { createMany: async () => ({ count: 0 }), findMany: async () => [] };
+
   loyaltyTransaction = {
     findUnique: async () => null,
     create: async ({ data }: { data: any }) => ({ transactionId: randomUUID(), ...data }),

@@ -1,5 +1,6 @@
 import Image from 'next/image';
 import Link from 'next/link';
+import { soldOutReason } from '@/lib/availability';
 import { formatVnd } from '@/lib/format';
 import type { Product } from '@/lib/types';
 
@@ -41,7 +42,7 @@ export function ProductCard({ product }: { product: Product }) {
           <div>
             <p className="text-base font-semibold text-coffee-900">{formatVnd(product.price)}</p>
             <p className="text-xs text-coffee-500">
-              {soldOut ? 'Tạm hết' : `Còn ${product.stock} phần`}
+              {soldOut ? soldOutReason(product) : `Còn ${product.stock} phần`}
             </p>
           </div>
           {soldOut ? (

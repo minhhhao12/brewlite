@@ -29,6 +29,9 @@ describe('OrdersService (FR-05, FR-08, FR-09, FR-10, NFR-05, CV21)', () => {
     promotion: {
       findUnique: jest.Mock;
     };
+    productIngredient: { findMany: jest.Mock };
+    ingredient: { updateMany: jest.Mock; findUnique: jest.Mock; update: jest.Mock };
+    orderIngredientUsage: { createMany: jest.Mock; findMany: jest.Mock };
     order: {
       create: jest.Mock;
       findMany: jest.Mock;
@@ -80,6 +83,17 @@ describe('OrdersService (FR-05, FR-08, FR-09, FR-10, NFR-05, CV21)', () => {
       },
       promotion: {
         findUnique: jest.fn(),
+      },
+      // Mặc định món không có công thức nguyên liệu (không ràng buộc), các test nguyên liệu nằm ở file riêng.
+      productIngredient: { findMany: jest.fn().mockResolvedValue([]) },
+      ingredient: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUnique: jest.fn(),
+        update: jest.fn(),
+      },
+      orderIngredientUsage: {
+        createMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       order: {
         create: jest.fn(),

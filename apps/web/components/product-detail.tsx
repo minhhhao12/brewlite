@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useState } from 'react';
 import { ApiError, api } from '@/lib/api';
+import { soldOutReason } from '@/lib/availability';
 import { MAX_ITEM_QUANTITY, useCartStore } from '@/lib/cart-store';
 import { formatVnd } from '@/lib/format';
 import type { Product, ProductOption } from '@/lib/types';
@@ -134,7 +135,7 @@ function ProductDetailView({ product }: { product: Product }) {
                     <p className="mt-3 text-sm text-coffee-500">
                         Giá từ <span className="font-semibold text-coffee-900">{formatVnd(product.price)}</span>
                         {' · '}
-                        {soldOut ? 'Tạm hết hàng' : `Còn ${product.stock} phần`}
+                        {soldOut ? soldOutReason(product) : `Còn ${product.stock} phần`}
                     </p>
 
                     {sizes.length > 0 ? (
