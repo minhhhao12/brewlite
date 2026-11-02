@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api, ApiError } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth-store';
-import type { Order } from '@/lib/types';
+import type { Order, OrderItemOption } from '@/lib/types';
 
 const STATUS_LABELS: Record<string, string> = {
   PENDING: 'Chờ thanh toán',
@@ -59,6 +59,16 @@ function getStatusStyle(status: string) {
   }
 }
 
+function formatOrderOptions(options?: OrderItemOption[]) {
+  if (!options || options.length === 0) {
+    return '';
+  }
+
+  return options
+    .map((option) => option.optionName)
+    .join(' · ');
+}
+
 export default function OrdersPage() {
   const router = useRouter();
 
@@ -97,7 +107,7 @@ export default function OrdersPage() {
         }
 
         if (error instanceof ApiError && error.status === 401) {
-          router.replace('/login?redirect=%2Forders')
+          router.replace('/login?redirect=%2Forders');
         } else if (error instanceof ApiError) {
           setErrorMessage(error.message || 'Không thể tải lịch sử đơn hàng.');
         } else {
@@ -190,16 +200,17 @@ export default function OrdersPage() {
           {orders.map((order) => (
             <article
               key={order.id}
-              className="rounded-3xl border border-coffee-200/80 bg-white p-5 shadow-sm transition hover:shadow-md sm:p-6"
+              className="overflow-hidden rounded-3xl border border-coffee-200/80 bg-white shadow-sm transition hover:shadow-md"
             >
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              {/* Order Header */}
+              <div className="flex flex-col gap-4 bg-coffee-50/70 p-5 sm:flex-row sm:items-start sm:justify-between sm:p-6">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider text-coffee-500">
-                    Mã đơn hàng
+                    Đơn hàng
                   </p>
 
                   <h2 className="mt-1 break-all text-lg font-bold text-coffee-900">
-                    {order.orderCode || order.id}
+                    #{order.orderCode || order.id}
                   </h2>
 
                   <p className="mt-2 text-sm text-coffee-500">
@@ -214,21 +225,104 @@ export default function OrdersPage() {
                 </span>
               </div>
 
-              <div className="mt-5 flex flex-col gap-3 border-t border-coffee-100 pt-5 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <p className="text-sm text-coffee-500">Tổng thanh toán</p>
+              {/* Order Items */}
+              <div className="p-5 sm:p-6">
+                <div className="mb-4 grid grid-cols-12 gap-2 border-b border-coffee-100 pb-3 text-xs font-semibold uppercase tracking-wider text-coffee-500">
+                  <div className="col-span-7 sm:col-span-8">
+                    Sản phẩm
+                  </div>
 
-                  <p className="mt-1 text-xl font-bold text-coffee-900">
-                    {formatCurrency(order.totalAmount)}
-                  </p>
+                  <div className="col-span-5 text-right sm:col-span-4">
+                    Thành tiền
+                  </div>
                 </div>
 
-                <Link
-                  href="/"
-                  className="inline-flex w-fit items-center justify-center rounded-full border border-coffee-300 px-5 py-2.5 text-sm font-semibold text-coffee-800 transition hover:bg-coffee-50"
-                >
-                  Về trang chủ
-                </Link>
+                <div className="space-y-5">
+                  {order.items?.map((item) => (
+                    <div
+                      key={item.id}
+                      className="grid grid-cols-12 items-start gap-2"
+                    >
+                      <div className="col-span-7 sm:col-span-8">
+                        <div className="flex gap-3">
+                          <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-coffee-50">
+                            {item.imageUrl ? (
+                              <img
+                                src={item.imageUrl}
+                                alt={item.productName}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center text-2xl">
+                                ☕
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="min-w-0">
+                            <h3 className="font-semibold text-coffee-900">
+                              {item.productName}
+                            </h3>
+
+                            {formatOrderOptions(item.options) && (
+                              <p className="mt-1 text-xs leading-5 text-coffee-500">
+                                {formatOrderOptions(item.options)}
+                              </p>
+                            )}
+
+                            <p className="mt-2 text-xs text-coffee-600">
+                              {item.quantity} × {formatCurrency(item.unitPrice)}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="col-span-5 text-right">
+                        <p className="font-semibold text-coffee-900">
+                          {formatCurrency(item.subtotal)}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Order Total */}
+                <div className="mt-6 border-t border-dashed border-coffee-200 pt-5">
+                  {Number(order.discountAmount) > 0 && (
+                    <div className="mb-3 flex justify-between text-sm text-coffee-500">
+                      <span>Giảm giá</span>
+                      <span>
+                        -{formatCurrency(order.discountAmount)}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between gap-4">
+                    <p className="text-sm font-medium text-coffee-600">
+                      Tổng thanh toán
+                    </p>
+
+                    <p className="text-xl font-bold text-coffee-900">
+                      {formatCurrency(order.totalAmount)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Order Footer */}
+              <div className="border-t border-coffee-100 bg-coffee-50/40 px-5 py-4 sm:px-6">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-xs text-coffee-500">
+                    Cảm ơn bạn đã lựa chọn BrewLite!
+                  </p>
+
+                  <Link
+                    href="/"
+                    className="inline-flex w-fit items-center justify-center rounded-full border border-coffee-300 px-5 py-2.5 text-sm font-semibold text-coffee-800 transition hover:bg-coffee-50"
+                  >
+                    Về trang chủ
+                  </Link>
+                </div>
               </div>
             </article>
           ))}

@@ -44,6 +44,7 @@ export class OrdersService {
         orderId: item.orderId,
         productId: item.productId,
         productName: item.productName,
+        imageUrl: item.product?.imageUrl ?? null,
         quantity: item.quantity,
         unitPrice:
           item.unitPrice instanceof Prisma.Decimal
@@ -335,7 +336,13 @@ export class OrdersService {
       where: { userId },
       include: {
         items: {
-          include: { options: true },
+          include: {
+            options: true,
+            product: {
+              select: {
+                imageUrl: true,},
+            },
+          },
         },
         promotion: true,
       },
