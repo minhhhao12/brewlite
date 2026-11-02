@@ -96,4 +96,6 @@ export type PaymentResponse = {
   payment: Payment;
   orderStatus: string;
   reused: boolean;
+  loyaltyPoints?: number | null;
+  loyaltyAwardPending?: boolean;
 };

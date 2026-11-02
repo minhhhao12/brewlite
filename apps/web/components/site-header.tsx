@@ -1,19 +1,22 @@
+
 'use client';
 
 import Link from 'next/link';
-import { selectCartCount, useCartHydrated, useCartStore } from '@/lib/cart-store';
+import { selectCartCount, useCartStore } from '@/lib/cart-store';
 import { useAuthStore } from '@/lib/auth-store';
 
 export function SiteHeader() {
   const itemCount = useCartStore(selectCartCount);
   const cartHydrated = useCartStore((state) => state.hasHydrated);
+
   const user = useAuthStore((state) => state.user);
   const clearAuth = useAuthStore((state) => state.clearAuth);
   const authHydrated = useAuthStore((state) => state.hasHydrated);
 
-  return(
-   <header className="sticky top-0 z-40 border-b border-coffee-100/80 bg-cream/90 backdrop-blur">
+  return (
+    <header className="sticky top-0 z-40 border-b border-coffee-100/80 bg-cream/90 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
+
         {/* Logo */}
         <Link
           href="/"
@@ -30,6 +33,7 @@ export function SiteHeader() {
 
         {/* Navigation */}
         <nav className="flex items-center gap-2 text-sm font-medium">
+
           <Link
             href="/"
             className="rounded-full px-3 py-2 text-coffee-700 transition hover:bg-coffee-100 hover:text-coffee-900"
@@ -37,7 +41,7 @@ export function SiteHeader() {
             Menu
           </Link>
 
-          {/* Order history: logged-in users only */}
+          {/* Order history */}
           {authHydrated && user && (
             <Link
               href="/orders"
@@ -50,10 +54,36 @@ export function SiteHeader() {
           {/* Authentication */}
           {authHydrated && user ? (
             <div className="flex items-center gap-2">
-              <span className="hidden text-xs font-semibold text-coffee-800 md:inline-block">
-                {user.username || user.email.split('@')[0]}
-              </span>
 
+              {/* User information + Loyalty points */}
+              <div
+                className="flex items-center gap-2 rounded-full border border-coffee-200 bg-coffee-100/70 px-3 py-1.5"
+                aria-label={`Tài khoản ${user.username || user.email.split('@')[0]}, ${user.loyaltyPoints ?? 0} điểm tích lũy`}
+              >
+                {/* Username */}
+                <span className="max-w-24 truncate text-xs font-semibold text-coffee-800">
+                  {user.username || user.email.split('@')[0]}
+                </span>
+
+                {/* Divider */}
+                <span className="h-4 w-px bg-coffee-300" />
+
+                {/* Loyalty points */}
+                <span className="flex items-center gap-1 whitespace-nowrap text-xs font-semibold text-amber-700">
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    className="h-3.5 w-3.5 text-amber-500"
+                  >
+                    <path d="M12 2.5l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3.1-5.8 3.1 1.1-6.5-4.7-4.6 6.5-.9L12 2.5z" />
+                  </svg>
+
+                  {(user.loyaltyPoints ?? 0).toLocaleString('vi-VN')}
+                </span>
+              </div>
+
+              {/* Logout */}
               <button
                 type="button"
                 onClick={() => clearAuth()}
