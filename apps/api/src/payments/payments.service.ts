@@ -14,6 +14,7 @@ import {
   PaymentStatus,
   Prisma,
 } from '@prisma/client';
+import { LoyaltyService } from '../loyalty/loyalty.service';
 import { OrderStateMachine } from '../orders/domain/order-state-machine';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePaymentDto } from './dto/create-payments.dto';
@@ -30,229 +31,9 @@ export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly loyaltyService: LoyaltyService,
   ) {}
 
-  /**
-   * FR-10:
-   * Quy đổi 10.000 VND = 1 điểm.
-   * Chỉ lấy phần nguyên, không làm tròn lên.
-   */
-  private calculateLoyaltyPoints(
-    totalAmount: Prisma.Decimal,
-  ): number {
-    return Math.floor(totalAmount.toNumber() / 10_000);
-  }
-
-  /**
-   * Ghi nhận điểm thưởng sau khi thanh toán thành công.
-   *
-   * LoyaltyTransaction và User.loyaltyPoints được cập nhật
-   * trong cùng một transaction.
-   *
-   * Unique constraint [orderId, type] bảo đảm mỗi đơn hàng
-   * chỉ có tối đa một giao dịch EARN.
-   */
-  private async awardLoyaltyPoints(orderId: string): Promise<number> {
-    try {
-      return await this.prisma.$transaction(
-        async (tx) => {
-          const order = await tx.order.findUnique({
-            where: { orderId },
-          });
-
-          if (!order) {
-            throw new NotFoundException(
-              'Không tìm thấy đơn hàng khi tích điểm.',
-            );
-          }
-
-          if (order.status !== OrderStatus.PAID) {
-            throw new ConflictException(
-              'Chỉ đơn hàng đã thanh toán mới được tích điểm.',
-            );
-          }
-
-          const existingEarn = await tx.loyaltyTransaction.findUnique({
-            where: {
-              orderId_type: {
-                orderId,
-                type: LoyaltyType.EARN,
-              },
-            },
-          });
-
-          const user = await tx.user.findUnique({
-            where: { userId: order.userId },
-            select: {
-              loyaltyPoints: true,
-            },
-          });
-
-          if (!user) {
-            throw new NotFoundException(
-              'Không tìm thấy tài khoản khách hàng.',
-            );
-          }
-
-          // Đơn hàng đã được tích điểm trước đó.
-          // Không cộng lại.
-          if (existingEarn) {
-            return user.loyaltyPoints;
-          }
-
-          const points = this.calculateLoyaltyPoints(
-            order.totalAmount,
-          );
-
-          // Đơn hàng dưới 10.000 VND không được cộng điểm.
-          if (points <= 0) {
-            return user.loyaltyPoints;
-          }
-
-          // Ghi lịch sử tích điểm.
-          await tx.loyaltyTransaction.create({
-            data: {
-              userId: order.userId,
-              orderId: order.orderId,
-              points,
-              type: LoyaltyType.EARN,
-            },
-          });
-
-          // Cập nhật số điểm hiện tại của khách hàng.
-          const updatedUser = await tx.user.update({
-            where: {
-              userId: order.userId,
-            },
-            data: {
-              loyaltyPoints: {
-                increment: points,
-              },
-            },
-            select: {
-              loyaltyPoints: true,
-            },
-          });
-
-          return updatedUser.loyaltyPoints;
-        },
-        {
-          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-        },
-      );
-    } catch (error) {
-      /**
-       * Hai request đồng thời có thể cùng cố tạo EARN.
-       *
-       * Nếu request hiện tại thua cuộc vì unique constraint,
-       * đọc lại giao dịch EARN và số điểm hiện tại.
-       * Tuyệt đối không cộng điểm lần thứ hai.
-       */
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
-        const existingEarn =
-          await this.prisma.loyaltyTransaction.findUnique({
-            where: {
-              orderId_type: {
-                orderId,
-                type: LoyaltyType.EARN,
-              },
-            },
-          });
-
-        if (existingEarn) {
-          const order = await this.prisma.order.findUnique({
-            where: { orderId },
-            select: {
-              userId: true,
-            },
-          });
-
-          if (order) {
-            const user = await this.prisma.user.findUnique({
-              where: {
-                userId: order.userId,
-              },
-              select: {
-                loyaltyPoints: true,
-              },
-            });
-
-            if (user) {
-              return user.loyaltyPoints;
-            }
-          }
-        }
-      }
-
-      throw error;
-    }
-  }
-
-  /**
-   * Bổ sung thông tin điểm thưởng vào response thanh toán.
-   *
-   * Nếu tích điểm gặp lỗi:
-   * - Không thay đổi kết quả thanh toán.
-   * - Trả loyaltyAwardPending = true.
-   * - Cho phép retry cùng Idempotency-Key để thử tích điểm lại.
-   */
-  private async attachLoyaltyPoints<
-    T extends {
-      payment: {
-        status: PaymentStatus;
-        orderId: string;
-      };
-      orderStatus: OrderStatus;
-    },
-  >(result: T) {
-    if (
-      result.payment.status !== PaymentStatus.PAID ||
-      result.orderStatus !== OrderStatus.PAID
-    ) {
-      return {
-        ...result,
-        loyaltyPoints: null,
-        loyaltyAwardPending: false,
-      };
-    }
-
-    try {
-      const loyaltyPoints = await this.awardLoyaltyPoints(
-        result.payment.orderId,
-      );
-
-      return {
-        ...result,
-        loyaltyPoints,
-        loyaltyAwardPending: false,
-      };
-    } catch (error) {
-      this.logger.error(
-        `Không thể tích điểm cho đơn hàng ${result.payment.orderId}`,
-        error instanceof Error ? error.stack : String(error),
-      );
-
-      return {
-        ...result,
-        loyaltyPoints: null,
-        loyaltyAwardPending: true,
-      };
-    }
-  }
-
-  /**
-   * Tạo thanh toán.
-   *
-   * - Chỉ hỗ trợ mock provider.
-   * - Kiểm tra Idempotency-Key.
-   * - Kiểm tra trạng thái đơn hàng.
-   * - Sử dụng OrderStateMachine.
-   * - Chống thanh toán trùng.
-   * - Tích điểm sau khi thanh toán thành công.
-   */
   async create(dto: CreatePaymentInput) {
     const provider = this.config.get<string>(
       'PAYMENT_PROVIDER',
@@ -399,13 +180,29 @@ export class PaymentsService {
             },
           });
 
-          return {
-            payment,
-            orderStatus: nextOrderStatus,
-            reused: false,
-          };
-        },
-      );
+        return {
+          payment,
+          orderStatus: nextOrderStatus,
+          reused: false,
+        };
+      });
+
+      // FR-10: Sau commit PENDING -> PAID, cộng loyaltyPoints cho user (idempotent theo orderId)
+      if (result.orderStatus === OrderStatus.PAID) {
+        try {
+          const totalAmountNum =
+            order.totalAmount instanceof Prisma.Decimal
+              ? order.totalAmount.toNumber()
+              : Number(order.totalAmount);
+          await this.loyaltyService.earnPoints(
+            order.userId,
+            order.orderId,
+            totalAmountNum,
+          );
+        } catch (_loyaltyError) {
+          // Ghi nhận lỗi nhưng không rollback giao dịch thanh toán đã commit
+        }
+      }
 
       // Transaction 2: Tích điểm sau khi payment đã commit.
       return this.attachLoyaltyPoints(result);

@@ -14,8 +14,8 @@ Tài liệu này theo dõi chuỗi truy vết từ Yêu cầu (Task 1) $\rightar
 | **FR-06** | Thanh toán không tiền mặt (Idempotent) | US-06 / UC-08 Thanh toán đơn hàng | Activity-01, Sequence-01, Class-01 | `POST /payments` (+ `Idempotency-Key`) | INT-T03, INT-T04 | Đã hoàn thành (CV14, CV17) |
 | **FR-07** | Lịch sử & Trạng thái đơn hàng cá nhân | US-07 / UC-10 Xem lịch sử & trạng thái đơn | Activity-01, Sequence-01, Class-01 | `GET /orders/me`, `GET /orders/:id` | API-T04 | Đã hoàn thành (CV16) |
 | **FR-08** | Order State Machine (nguồn duy nhất) | US-08 / UC-11 Quản lý trạng thái đơn | Activity-01, Sequence-01, Class-01 | `Order.assertTransition()` (State Machine Service) | UNIT-T02, INT-T04 | Đã hoàn thành (CV15) |
-| **FR-09** | Áp dụng mã khuyến mãi | US-09 / UC-09 Áp dụng khuyến mãi | Activity-01, Sequence-01, Class-01 | Validate `promoCode` trong `POST /orders` | UNIT-T01 | Sẵn sàng (Task 1) |
-| **FR-10** | Tích lũy điểm thưởng (idempotent theo orderId) | US-10 / UC-08 (bước post-commit) | Activity-01, Sequence-01, Class-01 | `LoyaltyService` sau commit `PENDING → PAID` | UNIT-T03 | Sẵn sàng (Task 1) |
+| **FR-09** | Áp dụng mã khuyến mãi | US-09 / UC-09 Áp dụng khuyến mãi | Activity-01, Sequence-01, Class-01 | Validate `promoCode` trong `POST /orders` | UNIT-T01 | Đã hoàn thành (CV21) |
+| **FR-10** | Tích lũy điểm thưởng (idempotent theo orderId) | US-10 / UC-08 (bước post-commit) | Activity-01, Sequence-01, Class-01 | `LoyaltyService` sau commit `PENDING → PAID` | UNIT-T03 | Đã hoàn thành (CV21) |
 | **FR-11** | Quản lý món & trạng thái món (Extended) | US-11 / UC-12 Quản lý sản phẩm/menu | Class-01, Deployment-01 | `PATCH /products/:id` (role=STAFF, audit log) | API-T05 | Sẵn sàng (Task 1) - Extended |
 | **FR-12** | Giao hàng tận nơi | — (Out-of-Scope) | — | — | — | Không thực hiện (Won't) |
 | **FR-13** | Thanh toán tiền mặt tại quầy | — (Out-of-Scope) | — | — | — | Không thực hiện (Won't) |

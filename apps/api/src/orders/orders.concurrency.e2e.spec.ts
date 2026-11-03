@@ -145,6 +145,16 @@ class FakePrismaOrders {
     findUnique: async () => null,
   };
 
+  loyaltyTransaction = {
+    findUnique: async () => null,
+    create: async ({ data }: { data: any }) => ({ transactionId: randomUUID(), ...data }),
+  };
+
+  user = {
+    findUnique: async () => null,
+    update: async () => ({}),
+  };
+
   $transaction = async <T>(callback: (tx: FakePrismaOrders) => Promise<T>): Promise<T> => {
     return callback(this);
   };

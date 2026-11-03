@@ -168,6 +168,11 @@ export const api = {
 
   getOrderById: (id: string): Promise<Order> => request<Order>(`/orders/${encodeURIComponent(id)}`),
 
+  cancelOrder: (id: string): Promise<Order> =>
+    request<Order>(`/orders/${encodeURIComponent(id)}/cancel`, {
+      method: 'POST',
+    }),
+
   createOrder: (payload: {
     items: Array<{
       productId: string;
@@ -204,6 +209,22 @@ export const api = {
         simulateFailure: payload.simulateFailure,
         idempotencyKey,
       }),
+    }),
+
+  // Kiểm tra mã khuyến mãi và tính trước giảm giá (CV21)
+  validatePromotion: (
+    code: string,
+    subtotal: number,
+  ): Promise<{
+    valid: boolean;
+    code: string;
+    discountAmount: number;
+    message?: string;
+  }> =>
+    request('/promotions/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, subtotal }),
     }),
 };
 

@@ -6,11 +6,18 @@ import {
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { OptionType, OrderStatus, Prisma, UserRole } from '@prisma/client';
+import { LoyaltyService } from '../loyalty/loyalty.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { PromotionsService } from '../promotions/promotions.service';
 import { OrdersService } from './orders.service';
 
-describe('OrdersService (FR-05, FR-08, FR-09, NFR-05)', () => {
+describe('OrdersService (FR-05, FR-08, FR-09, FR-10, NFR-05, CV21)', () => {
   let service: OrdersService;
+  let mockLoyaltyService: {
+    earnPoints: jest.Mock;
+    reversePoints: jest.Mock;
+    getPoints: jest.Mock;
+  };
   let prisma: {
     $transaction: jest.Mock;
     product: {
@@ -84,8 +91,19 @@ describe('OrdersService (FR-05, FR-08, FR-09, NFR-05)', () => {
       },
     };
 
+    mockLoyaltyService = {
+      earnPoints: jest.fn(),
+      reversePoints: jest.fn(),
+      getPoints: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
-      providers: [OrdersService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        OrdersService,
+        PromotionsService,
+        { provide: LoyaltyService, useValue: mockLoyaltyService },
+        { provide: PrismaService, useValue: prisma },
+      ],
     }).compile();
 
     service = module.get<OrdersService>(OrdersService);
@@ -192,6 +210,137 @@ describe('OrdersService (FR-05, FR-08, FR-09, NFR-05)', () => {
       const result = await service.createOrder('user-1', {
         items: [{ productId: mockProduct.productId, quantity: 1 }],
         promoCode: 'GIAM10K',
+      });
+
+      expect(result.subtotal).toBe(29000);
+      expect(result.discountAmount).toBe(10000);
+      expect(result.totalAmount).toBe(19000);
+    });
+
+    it('từ chối khi mã khuyến mãi không tồn tại trên hệ thống (CV21)', async () => {
+      prisma.product.findMany.mockResolvedValue([mockProduct]);
+      prisma.promotion.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.createOrder('user-1', {
+          items: [{ productId: mockProduct.productId, quantity: 1 }],
+          promoCode: 'SAIMATROI',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('từ chối khi mã khuyến mãi đã hết hạn (CV21)', async () => {
+      prisma.product.findMany.mockResolvedValue([mockProduct]);
+      prisma.promotion.findUnique.mockResolvedValue({
+        promotionId: 'promo-expired',
+        code: 'HETHAN',
+        discountType: 'FIXED',
+        discountValue: new Prisma.Decimal(10000),
+        maxDiscount: null,
+        minimumOrderAmount: new Prisma.Decimal(20000),
+        startAt: new Date(Date.now() - 7200000),
+        endAt: new Date(Date.now() - 3600000),
+        status: 'ACTIVE',
+      });
+
+      await expect(
+        service.createOrder('user-1', {
+          items: [{ productId: mockProduct.productId, quantity: 1 }],
+          promoCode: 'HETHAN',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('từ chối khi mã khuyến mãi chưa đến thời gian áp dụng (CV21)', async () => {
+      prisma.product.findMany.mockResolvedValue([mockProduct]);
+      prisma.promotion.findUnique.mockResolvedValue({
+        promotionId: 'promo-future',
+        code: 'CHOGIO',
+        discountType: 'FIXED',
+        discountValue: new Prisma.Decimal(10000),
+        maxDiscount: null,
+        minimumOrderAmount: new Prisma.Decimal(20000),
+        startAt: new Date(Date.now() + 3600000),
+        endAt: new Date(Date.now() + 7200000),
+        status: 'ACTIVE',
+      });
+
+      await expect(
+        service.createOrder('user-1', {
+          items: [{ productId: mockProduct.productId, quantity: 1 }],
+          promoCode: 'CHOGIO',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('từ chối khi mã khuyến mãi có trạng thái INACTIVE (CV21)', async () => {
+      prisma.product.findMany.mockResolvedValue([mockProduct]);
+      prisma.promotion.findUnique.mockResolvedValue({
+        promotionId: 'promo-inactive',
+        code: 'KHOA',
+        discountType: 'FIXED',
+        discountValue: new Prisma.Decimal(10000),
+        maxDiscount: null,
+        minimumOrderAmount: new Prisma.Decimal(20000),
+        startAt: new Date(Date.now() - 3600000),
+        endAt: new Date(Date.now() + 3600000),
+        status: 'INACTIVE',
+      });
+
+      await expect(
+        service.createOrder('user-1', {
+          items: [{ productId: mockProduct.productId, quantity: 1 }],
+          promoCode: 'KHOA',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('từ chối khi đơn hàng chưa đạt giá trị tối thiểu của mã khuyến mãi (CV21)', async () => {
+      prisma.product.findMany.mockResolvedValue([mockProduct]); // 29,000 VND
+      prisma.promotion.findUnique.mockResolvedValue({
+        promotionId: 'promo-min',
+        code: 'TOITHIEU50K',
+        discountType: 'FIXED',
+        discountValue: new Prisma.Decimal(10000),
+        maxDiscount: null,
+        minimumOrderAmount: new Prisma.Decimal(50000),
+        startAt: new Date(Date.now() - 3600000),
+        endAt: new Date(Date.now() + 3600000),
+        status: 'ACTIVE',
+      });
+
+      await expect(
+        service.createOrder('user-1', {
+          items: [{ productId: mockProduct.productId, quantity: 1 }],
+          promoCode: 'TOITHIEU50K',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('áp dụng mã khuyến mãi theo phần trăm có trần maxDiscount chính xác (CV21)', async () => {
+      prisma.product.findMany.mockResolvedValue([mockProduct]);
+      prisma.product.updateMany.mockResolvedValue({ count: 1 });
+      // Giảm 50% trần tối đa 10,000 cho đơn 29,000 -> giảm 10,000 thay vì 14,500
+      prisma.promotion.findUnique.mockResolvedValue({
+        promotionId: 'promo-percent',
+        code: 'GIAM50',
+        discountType: 'PERCENTAGE',
+        discountValue: new Prisma.Decimal(50),
+        maxDiscount: new Prisma.Decimal(10000),
+        minimumOrderAmount: new Prisma.Decimal(20000),
+        startAt: new Date(Date.now() - 3600000),
+        endAt: new Date(Date.now() + 3600000),
+        status: 'ACTIVE',
+      });
+      prisma.order.create.mockImplementation(async ({ data }: { data: any }) => ({
+        orderId: 'order-percent',
+        ...data,
+        items: [],
+      }));
+
+      const result = await service.createOrder('user-1', {
+        items: [{ productId: mockProduct.productId, quantity: 1 }],
+        promoCode: 'GIAM50',
       });
 
       expect(result.subtotal).toBe(29000);
@@ -579,6 +728,61 @@ describe('OrdersService (FR-05, FR-08, FR-09, NFR-05)', () => {
       await expect(
         service.getOrderById('non-existent-order', 'user-owner', UserRole.CUSTOMER),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('cancelOrder (CV21, FR-10)', () => {
+    it('gọi loyaltyService.reversePoints khi hủy đơn hàng đã thanh toán PAID', async () => {
+      const paidOrder = {
+        orderId: 'order-paid',
+        userId: 'user-owner',
+        status: OrderStatus.PAID,
+        items: [{ productId: 'prod-1', quantity: 2 }],
+      };
+
+      prisma.order.findFirst.mockResolvedValue(paidOrder);
+      prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      prisma.product.update.mockResolvedValue({});
+      prisma.order.findUniqueOrThrow.mockResolvedValue({
+        ...paidOrder,
+        status: OrderStatus.CANCELLED,
+        subtotal: new Prisma.Decimal(50000),
+        discountAmount: new Prisma.Decimal(0),
+        totalAmount: new Prisma.Decimal(50000),
+        items: [],
+      });
+
+      await service.cancelOrder('order-paid', 'user-owner', UserRole.STAFF);
+
+      expect(mockLoyaltyService.reversePoints).toHaveBeenCalledWith(
+        'user-owner',
+        'order-paid',
+      );
+    });
+
+    it('không gọi loyaltyService.reversePoints khi hủy đơn chưa thanh toán PENDING', async () => {
+      const pendingOrder = {
+        orderId: 'order-pending',
+        userId: 'user-owner',
+        status: OrderStatus.PENDING,
+        items: [{ productId: 'prod-1', quantity: 1 }],
+      };
+
+      prisma.order.findFirst.mockResolvedValue(pendingOrder);
+      prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      prisma.product.update.mockResolvedValue({});
+      prisma.order.findUniqueOrThrow.mockResolvedValue({
+        ...pendingOrder,
+        status: OrderStatus.CANCELLED,
+        subtotal: new Prisma.Decimal(29000),
+        discountAmount: new Prisma.Decimal(0),
+        totalAmount: new Prisma.Decimal(29000),
+        items: [],
+      });
+
+      await service.cancelOrder('order-pending', 'user-owner', UserRole.CUSTOMER);
+
+      expect(mockLoyaltyService.reversePoints).not.toHaveBeenCalled();
     });
   });
 });
