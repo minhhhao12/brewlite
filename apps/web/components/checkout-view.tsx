@@ -93,6 +93,8 @@ function EmptyCheckout() {
 export function CheckoutView() {
   const router = useRouter();
 
+  const updateUser = useAuthStore((state) => state.updateUser);
+
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
   const authHydrated = useAuthStore((state) => state.hasHydrated);
@@ -239,6 +241,14 @@ export function CheckoutView() {
 
       if (isPaymentPaid(paymentResponse)) {
         clearCart();
+
+        try {
+          const latestUser = await api.getMe();
+          updateUser(latestUser);
+        } catch {
+          // Không ảnh hưởng kết quả thanh toán.
+          // Điểm sẽ được đồng bộ lại ở lần tải dữ liệu tiếp theo.
+        }
         setResult({ status: 'SUCCESS', orderCode: activeOrder.code, amount, method });
         return;
       }

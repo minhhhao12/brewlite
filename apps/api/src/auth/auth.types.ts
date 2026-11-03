@@ -19,7 +19,7 @@ export type PublicUser = {
   email: string;
   username: string;
   role: UserRole;
-  loyaltyPoints?: number;
+  loyaltyPoints: number;
 };
 
 export type LoginResponse = {

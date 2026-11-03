@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
@@ -14,6 +14,7 @@ const PUBLIC_USER_SELECT = {
   email: true,
   username: true,
   role: true,
+  loyaltyPoints: true,
 } as const;
 
 type PublicUserRow = {
@@ -21,10 +22,11 @@ type PublicUserRow = {
   email: string;
   username: string;
   role: PublicUser['role'];
+  loyaltyPoints: number;
 };
 
 function toPublicUser(user: PublicUserRow): PublicUser {
-  return { id: user.userId, email: user.email, username: user.username, role: user.role };
+  return { id: user.userId, email: user.email, username: user.username, role: user.role, loyaltyPoints: user.loyaltyPoints,};
 }
 
 /** Lỗi trùng khóa unique của Prisma (P2002), nhận diện theo mã lỗi. */
@@ -95,5 +97,18 @@ export class AuthService {
     const accessToken = await this.jwt.signAsync(payload);
 
     return { accessToken, tokenType: 'Bearer', user: toPublicUser(user) };
+  }
+
+  async getMe(userId: string): Promise<PublicUser> {
+    const user = await this.prisma.user.findUnique({
+      where: { userId },
+      select: PUBLIC_USER_SELECT,
+    });
+
+    if (!user) {
+      throw new NotFoundException('Không tìm thấy tài khoản.');
+    }
+
+    return toPublicUser(user);
   }
 }
