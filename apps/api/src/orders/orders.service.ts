@@ -6,6 +6,11 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { OptionType, OrderStatus, Prisma, UserRole } from '@prisma/client';
+import {
+  aggregateRequirements,
+  type IngredientRequirement,
+  type RecipeLine,
+} from '../ingredients/domain/ingredient-policy';
 import { LoyaltyService } from '../loyalty/loyalty.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PromotionsService } from '../promotions/promotions.service';
@@ -273,6 +278,13 @@ export class OrdersService {
           }
         }
 
+        // Nguyên liệu: món thiếu nguyên liệu thì không bán. Trừ nguyên tử cùng giao dịch với tồn kho món,
+        // nên một khi thiếu thì cả đơn bị hủy bỏ (rollback), không trừ dở dang.
+        const ingredientRequirements = await this.reserveIngredients(
+          tx,
+          [...productQuantities.entries()].map(([productId, quantity]) => ({ productId, quantity })),
+        );
+
         // Tạo Order + OrderItem + OrderItemOption
         const order = await tx.order.create({
           data: {
@@ -304,12 +316,88 @@ export class OrdersService {
           },
         });
 
+        // Ghi lại lượng nguyên liệu đã trừ để hoàn đúng khi hủy (kể cả khi công thức bị sửa sau này).
+        if (ingredientRequirements.length > 0) {
+          await tx.orderIngredientUsage.createMany({
+            data: ingredientRequirements.map((requirement) => ({
+              orderId: order.orderId,
+              ingredientId: requirement.ingredientId,
+              quantity: requirement.need,
+            })),
+          });
+        }
+
         return this.mapOrderResponse(order);
       },
       {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
+  }
+
+  /**
+   * Kiểm tra và trừ nguyên liệu theo công thức của các món trong đơn.
+   * Mỗi nguyên liệu trừ bằng điều kiện nguyên tử `stock >= cần`: nhiều đơn cùng đặt một lúc
+   * thì đơn nào đến sau mà không đủ sẽ bị từ chối, tồn kho nguyên liệu không bao giờ âm.
+   */
+  private async reserveIngredients(
+    tx: Prisma.TransactionClient,
+    items: Array<{ productId: string; quantity: number }>,
+  ): Promise<IngredientRequirement[]> {
+    const rows = await tx.productIngredient.findMany({
+      where: { productId: { in: items.map((item) => item.productId) } },
+      include: { ingredient: true },
+    });
+
+    const recipes = new Map<string, RecipeLine[]>();
+    for (const row of rows) {
+      const lines = recipes.get(row.productId) ?? [];
+      lines.push({
+        ingredientId: row.ingredientId,
+        name: row.ingredient.name,
+        unit: row.ingredient.unit,
+        quantityPerServing: row.quantityPerServing,
+        stock: row.ingredient.stock,
+      });
+      recipes.set(row.productId, lines);
+    }
+
+    const requirements = aggregateRequirements(items, recipes);
+
+    for (const requirement of requirements) {
+      const updated = await tx.ingredient.updateMany({
+        where: { ingredientId: requirement.ingredientId, stock: { gte: requirement.need } },
+        data: { stock: { decrement: requirement.need } },
+      });
+
+      if (updated.count === 0) {
+        const current = await tx.ingredient.findUnique({
+          where: { ingredientId: requirement.ingredientId },
+          select: { stock: true },
+        });
+        throw new BadRequestException(
+          `Không đủ nguyên liệu "${requirement.name}" để pha đơn này ` +
+            `(còn ${current?.stock ?? 0} ${requirement.unit}, cần ${requirement.need} ${requirement.unit}).`,
+        );
+      }
+    }
+
+    return requirements;
+  }
+
+  /** Hoàn lại đúng lượng nguyên liệu đã trừ cho đơn (đọc từ OrderIngredientUsage). */
+  private async restoreIngredients(tx: Prisma.TransactionClient, orderId: string): Promise<void> {
+    const usages = await tx.orderIngredientUsage.findMany({
+      where: { orderId },
+      orderBy: { ingredientId: 'asc' },
+    });
+
+    for (const usage of usages) {
+      await tx.ingredient.update({
+        where: { ingredientId: usage.ingredientId },
+        data: { stock: { increment: usage.quantity } },
+      });
+    }
   }
 
   /**
@@ -417,6 +505,9 @@ export class OrdersService {
           },
         });
       }
+
+      // Hoàn nguyên liệu đã trừ khi đặt đơn (cùng điều kiện đã thắng chốt trạng thái ở trên).
+      await this.restoreIngredients(tx, order.orderId);
 
       // FR-10: Hoàn lại điểm tích lũy nếu đơn hàng đã PAID bị hủy
       if (order.status === OrderStatus.PAID) {

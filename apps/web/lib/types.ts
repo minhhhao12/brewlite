@@ -14,7 +14,10 @@ export type Product = {
   description: string;
   price: number;
   imageUrl: string;
+  /** Số phần bán được thực tế (đã tính cả nguyên liệu). */
   stock: number;
+  /** Nguyên liệu đang thiếu khiến món không bán được (rỗng nếu không thiếu). */
+  missingIngredients?: string[];
   status: 'ACTIVE' | 'HIDDEN';
   options: ProductOption[];
 };

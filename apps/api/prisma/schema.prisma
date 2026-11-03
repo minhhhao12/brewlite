@@ -95,8 +95,9 @@ model Product {
   version     Int           @default(0)
   status      ProductStatus @default(ACTIVE)
 
-  options    ProductOption[]
-  orderItems OrderItem[]
+  options     ProductOption[]
+  orderItems  OrderItem[]
+  ingredients ProductIngredient[]
 
   @@index([status])
   @@index([name])
@@ -132,6 +133,7 @@ model Order {
   items               OrderItem[]
   payments            Payment[]
   loyaltyTransactions LoyaltyTransaction[]
+  ingredientUsages    OrderIngredientUsage[]
 
   @@index([userId, createdAt])
   @@index([status])
@@ -218,4 +220,45 @@ model LoyaltyTransaction {
   // Mỗi đơn tối đa một EARN và một REVERSAL (FR-10).
   @@unique([orderId, type])
   @@index([userId, createdAt])
+}
+
+// Nguyên liệu và công thức (tính năng bổ sung: món hết nguyên liệu thì ngừng bán).
+// - Ingredient.stock tính theo đơn vị `unit` (ml, g, quả...). Trừ kho bằng điều kiện nguyên tử
+//   where { ingredientId, stock: { gte: need } } nên không bao giờ âm dù nhiều đơn đặt cùng lúc.
+// - ProductIngredient là công thức: 1 phần món cần bao nhiêu nguyên liệu. Món không có công thức
+//   thì không bị ràng buộc nguyên liệu.
+// - OrderIngredientUsage lưu lượng nguyên liệu đã trừ cho từng đơn để hoàn lại đúng khi hủy,
+//   kể cả khi công thức bị sửa sau khi đặt.
+model Ingredient {
+  ingredientId String @id @default(uuid()) @db.Uuid
+  name         String @unique @db.VarChar(80)
+  unit         String @db.VarChar(20)
+  stock        Int    @default(0)
+
+  recipes ProductIngredient[]
+  usages  OrderIngredientUsage[]
+}
+
+model ProductIngredient {
+  productId          String @db.Uuid
+  ingredientId       String @db.Uuid
+  quantityPerServing Int
+
+  product    Product    @relation(fields: [productId], references: [productId], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [ingredientId], onDelete: Restrict)
+
+  @@id([productId, ingredientId])
+  @@index([ingredientId])
+}
+
+model OrderIngredientUsage {
+  orderId      String @db.Uuid
+  ingredientId String @db.Uuid
+  quantity     Int
+
+  order      Order      @relation(fields: [orderId], references: [orderId], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [ingredientId], onDelete: Restrict)
+
+  @@id([orderId, ingredientId])
+  @@index([ingredientId])
 }

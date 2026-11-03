@@ -37,6 +37,10 @@ class FakePrismaCV21 {
     },
   };
 
+  // Các món trong test này không có công thức nguyên liệu.
+  productIngredient = { findMany: async () => [] };
+  orderIngredientUsage = { createMany: async () => ({ count: 0 }), findMany: async () => [] };
+
   product = {
     findMany: async ({ where }: { where: { productId: { in: string[] } } }) => {
       return (where.productId.in || [])
