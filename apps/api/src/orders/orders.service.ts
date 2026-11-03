@@ -54,6 +54,7 @@ export class OrdersService {
         orderItemId: item.orderItemId,
         orderId: item.orderId,
         productId: item.productId,
+        imageUrl: item.product?.imageUrl ?? null,
         productName: item.productName,
         quantity: item.quantity,
         unitPrice:
@@ -408,7 +409,14 @@ export class OrdersService {
       where: { userId },
       include: {
         items: {
-          include: { options: true },
+          include: {
+            options: true,
+            product: {
+              select: {
+                imageUrl: true,
+              },
+            },
+          },
         },
         promotion: true,
       },

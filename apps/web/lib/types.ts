@@ -66,6 +66,7 @@ export type OrderItem = {
   unitPrice: number | string;
   subtotal: number | string;
   options?: OrderItemOption[];
+  imageUrl?: string | null;
 };
 
 export type Order = {
