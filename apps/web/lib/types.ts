@@ -63,6 +63,7 @@ export type OrderItem = {
   unitPrice: number | string;
   subtotal: number | string;
   options?: OrderItemOption[];
+  imageUrl: string | null;
 };
 
 export type Order = {
@@ -95,4 +96,6 @@ export type PaymentResponse = {
   payment: Payment;
   orderStatus: string;
   reused: boolean;
+  loyaltyPoints?: number | null;
+  loyaltyAwardPending?: boolean;
 };

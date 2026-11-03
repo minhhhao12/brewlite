@@ -386,7 +386,9 @@ export function CheckoutView() {
         <div className="flex items-center gap-2 text-xs font-semibold text-coffee-500">
           <span className="text-coffee-400">1. Giỏ hàng</span>
           <span>›</span>
-          <span className="rounded-full bg-coffee-800 px-3 py-1 text-cream">2. Thanh toán</span>
+          <span className="rounded-full bg-coffee-800 px-3 py-1 text-cream">
+            2. Thanh toán
+          </span>
           <span>›</span>
           <span className="text-coffee-400">3. Hoàn tất</span>
         </div>
@@ -396,6 +398,7 @@ export function CheckoutView() {
         <h1 className="text-2xl font-bold tracking-tight text-coffee-900 sm:text-3xl">
           Thanh toán đơn hàng
         </h1>
+
         <p className="mt-1 text-sm text-coffee-600">
           Xác nhận thông tin đặt món và chọn phương thức thanh toán.
         </p>
@@ -424,9 +427,11 @@ export function CheckoutView() {
             <div className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
               <div className="rounded-2xl border border-coffee-100 bg-cream/30 p-3.5">
                 <span className="text-xs text-coffee-500">Khách hàng</span>
+
                 <p className="mt-0.5 font-semibold text-coffee-900">
                   {user?.username || user?.email?.split('@')[0]}
                 </p>
+
                 <p className="text-xs text-coffee-600">{user?.email}</p>
                 {user?.loyaltyPoints !== undefined && (
                   <p className="mt-1 text-xs font-semibold text-amber-800">
@@ -478,10 +483,12 @@ export function CheckoutView() {
                   <span className="text-xs font-semibold text-coffee-800">
                     Mô phỏng thanh toán thất bại
                   </span>
+
                   <p className="text-[11px] text-coffee-500">
                     Bật tùy chọn này để kiểm tra luồng PAYMENT_FAILED.
                   </p>
                 </div>
+
                 <input
                   type="checkbox"
                   checked={simulateFailure}
