@@ -8,7 +8,7 @@
 - **Tài liệu triển khai**: [`deployment.md`](../deployment.md), [`deployment.puml`](../diagrams/deployment.puml)
 - **Bộ quyết định kiến trúc**: [`adr/README.md`](./adr/README.md)
 
-> **Trạng thái hiện tại của repository**: Task 1–3 đã hoàn thành phần đặc tả, mô hình hóa, kiến trúc và deployment diagram. CV02–CV06 đã hiện thực khung `apps/api` (NestJS, Prisma schema/migration/seed, `GET /products`) và `apps/web` (Next.js layout, menu, giỏ hàng client). Các phần auth/order/payment, CI/CD và production sẽ tiếp tục ở các task sau. Trạng thái từng thành phần được ghi rõ ở §13.
+> **Trạng thái hiện tại của repository (cập nhật 2026-11-09, CV13)**: Phần đặc tả, mô hình hóa, kiến trúc, deployment diagram đã có. Code đã hiện thực: auth (JWT/Bcrypt), products, orders (tạo/hủy/đổi trạng thái, `OrderStateMachine`), payments mô phỏng có `Idempotency-Key`, promotions, loyalty, health check, validate env, CI (lint/test/build) và Docker Compose cho môi trường dev. Một số chi tiết **được hiện thực khác thiết kế ban đầu** hoặc **chưa làm** (khóa `Serializable` + optimistic thay vì `FOR UPDATE`, chưa có `PaymentGateway`/job đối soát, chưa có logging JSON/`requestId`, chưa có service worker, chưa có Dockerfile production/CD). Các chỗ đó được đánh dấu bằng khối **"Hiện thực thực tế"** trong từng mục và bảng trạng thái ở §13.2–§13.3.
 
 ---
 
@@ -406,7 +406,9 @@ BEGIN
 COMMIT
 ```
 
-- Chọn **pessimistic lock** (`FOR UPDATE`) thay vì optimistic: contention của đồ án thấp nhưng cần chặn oversell/double-charge tuyệt đối; optimistic sẽ phải retry và khó chứng minh trong demo.
+> **Hiện thực thực tế (CV13)**: `OrdersService.createOrder` **không** dùng `SELECT ... FOR UPDATE`. Code dùng `prisma.$transaction` với `isolationLevel: Serializable` kết hợp **optimistic locking**: `updateMany` trừ kho có điều kiện (`version`/`stock >= qty`), nếu `count = 0` thì rollback và trả lỗi hết hàng/xung đột. Các `productId` được `sort()` trước khi xử lý để giảm deadlock (`apps/api/src/orders/orders.service.ts`). Kiểm thử đồng thời: `orders.concurrency.e2e.spec.ts`. Phần mô tả `FOR UPDATE` bên dưới là **thiết kế ban đầu**; hai cách cùng đạt mục tiêu NFR-05 (không oversell) nhưng cách thực tế có thể trả lỗi serialization/xung đột khi tranh chấp cao.
+
+- Thiết kế ban đầu chọn **pessimistic lock** (`FOR UPDATE`) thay vì optimistic: contention của đồ án thấp nhưng cần chặn oversell/double-charge tuyệt đối; optimistic sẽ phải retry và khó chứng minh trong demo.
 - Khóa theo thứ tự cố định (ví dụ sắp `productId`) để giảm deadlock.
 - Không dùng `total` client gửi; server tính `subtotal`, `discount = min(configuredDiscount, maxDiscount, subtotal)`, `total = max(0, subtotal - discount)`.
 - Lượt dùng **per-user** được đếm từ các `Order` đã gắn cùng `Promotion` của user (quan hệ `Order → Promotion` trong Class-01), không cần thêm bảng ngoài mô hình lớp. Nếu cần chống race tuyệt đối, có thể thêm unique index `(userId, promotionId)` trên `Order` ở migration (index, không thêm entity).
@@ -457,6 +459,8 @@ COMMIT
 - Timeout chưa xác minh: **không** kết luận `FAILED`; giữ `PROCESSING`, đơn `PENDING`, job đối soát chốt sau (FR-06, RSK-03).
 - Nếu gateway đã thành công nhưng transaction cập nhật DB thất bại: **không** gọi gateway lần 2; giữ `PROCESSING` và đối soát (FR-06).
 
+> **Hiện thực thực tế (CV17/CV13)**: `PaymentsService.create` (`apps/api/src/payments/payments.service.ts`) hiện thực **bản rút gọn** của luồng trên: (1) tra `Payment` theo unique `(userId, orderId, idempotencyKey)` – có rồi thì trả kết quả đã lưu (`reused: true`); (2) kiểm tra trạng thái đơn `PENDING`/`PAYMENT_FAILED`, gọi `OrderStateMachine.assertTransition`; (3) **một** `$transaction`: chuyển trạng thái đơn bằng `updateMany` có điều kiện (chỉ một request thắng, request thua nhận `409`) rồi `INSERT Payment` (`PAID` hoặc `FAILED`, có `transactionReference` dạng `MOCK-...`); (4) sau commit gọi `LoyaltyService.earnPoints` (lỗi loyalty không rollback thanh toán); (5) race cùng key → bắt `P2002`/`409` rồi đọc lại và trả kết quả của request thắng. **Chưa có**: bước reservation `PROCESSING`, `Order FOR UPDATE`, gọi gateway ngoài transaction, trạng thái `EXPIRED`, job đối soát. Lý do: gateway là mock chạy tức thời nên không có timeout chưa xác minh; các phần đó chỉ cần khi tích hợp gateway thật.
+
 #### Hủy đơn – `CANCELLED` (FR-08, FR-10)
 
 ```text
@@ -469,6 +473,8 @@ BEGIN
       INSERT LoyaltyTransaction (REVERSAL) + giảm điểm
 COMMIT
 ```
+
+> **Hiện thực thực tế**: `OrdersService.cancelOrder` thay `Order FOR UPDATE` bằng `updateMany where { orderId, status: <trạng thái đã đọc> }`; request thua cuộc nhận `count = 0` → `409`, không hoàn kho hai lần. Sau đó hoàn kho bằng `increment` (kèm `version`) và gọi `LoyaltyService.reversePoints` nếu đơn đang `PAID`. Customer hủy đơn của người khác hoặc hủy đơn đã `PAID` → `403`.
 
 - Chỉ customer hủy `PENDING`/`PAYMENT_FAILED`; staff hỗ trợ `PAID → CANCELLED` (refund ngoài MVP mock).
 - Không auto-hủy theo timeout (theo Activity-01).
@@ -496,6 +502,8 @@ COMMIT
 ## 8. Thanh toán mô phỏng và state machine
 
 ### 8.1. Ports & adapters
+
+> **Hiện thực thực tế (CV13)**: **Chưa có** `PaymentGateway`, `MockPaymentGateway`, DI token `PAYMENT_PROVIDER` và `PaymentReconciliationJob`. Việc mô phỏng nằm trực tiếp trong `PaymentsService`: biến môi trường `PAYMENT_PROVIDER` (mặc định `mock`; giá trị khác trả `503`) và cờ `simulateFailure` trong DTO để demo thanh toán thất bại (bị chặn ở `NODE_ENV=production`). Bảng dưới là **thiết kế mục tiêu**; xem ADR-005 mục "Trạng thái hiện thực".
 
 | Thành phần | Vai trò | Ghi chú |
 | :--- | :--- | :--- |
@@ -527,6 +535,8 @@ COMMIT
 
 ### 8.3. Trạng thái thanh toán
 
+> **Hiện thực thực tế**: enum `PaymentStatus` trong `apps/api/prisma/schema.prisma` hiện có `INITIATED`, `PAID`, `FAILED`; **chưa có** `PROCESSING` và `EXPIRED`. Bảng dưới là thiết kế mục tiêu. `OrderStatus` (7 trạng thái) và 9 transition ở §8.2 **đã hiện thực đúng** trong `apps/api/src/orders/domain/order-state-machine.ts`.
+
 | Trạng thái | Ý nghĩa | Chuyển tiếp |
 | :--- | :--- | :--- |
 | `PROCESSING` | Reservation đã ghi, đang gọi/chờ gateway | → `PAID`, `FAILED`, `EXPIRED` |
@@ -557,9 +567,11 @@ COMMIT
 | Đăng nhập | So sánh Bcrypt; cấp JWT chứa `userId`, `email`, `role`; expiry ~1h | FR-04 |
 | Bảo vệ route | `JwtAuthGuard` cho `POST /orders`, `POST /payments`, `GET /orders/me`; thiếu/hết hạn `401` | FR-04 |
 | Phân quyền | `RolesGuard`; role đọc từ DB, không tin client; sai quyền `403` | FR-04, NFR-02 |
+| *Hiện thực phân quyền* | **Không có** `RolesGuard` riêng: controller/service kiểm tra `user.role === UserRole.STAFF` trực tiếp (`orders.controller.ts`, `orders.service.ts`) và ném `ForbiddenException`; role lấy từ DB trong `JwtStrategy` (ADR-008) | FR-04 |
 | Validate input | Global `ValidationPipe` (`whitelist`, `forbidNonWhitelisted`, `transform`) + DTO `class-validator` | NFR-02 |
 | Bí mật | `JWT_SECRET`, `DATABASE_URL`, gateway secret chỉ ở Render/GitHub Secrets; `.env` bị ignore | NFR-02, RSK-04 |
 | JWT ở client | Bộ nhớ + `sessionStorage`; không URL/log; CSP; expiry ngắn | ADR-008 |
+| *Hiện thực JWT ở client* | Token lưu bằng `localStorage` qua `apps/web/lib/auth-store.ts` (khác thiết kế `sessionStorage`); expiry mặc định `1h` (`JWT_EXPIRES_IN`); chưa cấu hình CSP/Helmet | ADR-008 |
 
 ### 9.2. Bảo mật triển khai
 
@@ -590,6 +602,8 @@ COMMIT
 | Correlation | `requestId` sinh ở middleware, trả header `X-Request-Id`, gắn vào log | Log API |
 | Metrics/tracing | Không có trong MVP; có thể thêm OpenTelemetry sau | — |
 | Alert | Dựa vào health check + log Render; chưa có alerting riêng | — |
+
+> **Hiện thực thực tế (CV13)**: đã có `GET /health` (liveness, không query DB), `GET /health/ready` (`SELECT 1`, lỗi → `503 DATABASE_UNAVAILABLE`) trong `apps/api/src/health/health.controller.ts`, và validate cấu hình lúc khởi động trong `apps/api/src/config/env.validation.ts` (production fail-fast nếu thiếu `DATABASE_URL`/`JWT_SECRET`; `LOG_LEVEL` được validate). **Chưa có** structured logging JSON, middleware `requestId`/`X-Request-Id` (hiện dùng `Logger` mặc định của NestJS và `HttpExceptionFilter` ở `apps/api/src/common/filters/`).
 
 > `/health` là endpoint **bắt buộc** theo FR-14/NFR-04. `/health/ready` là bổ sung vận hành, không thay thế `/health` trong smoke test.
 
@@ -660,7 +674,7 @@ Chi tiết và runbook ở [`deployment.md`](../deployment.md); sơ đồ UML �
 | FR-02 | `ProductsModule`, `ProductOption`, `PricingPolicy`, route chi tiết | ADR-002, ADR-004 | Size/Topping là price modifier, không có kho riêng |
 | FR-03 | Zustand cart + persist, `apiClient` | ADR-009 | Không có bảng Cart; server bỏ qua total client |
 | FR-04 | `AuthModule`, `UsersModule`, JWT/Bcrypt | ADR-008 | Role từ DB; guard/role |
-| FR-05 | `OrdersModule`, transaction + `SELECT FOR UPDATE` | ADR-002, ADR-004 | Trừ kho, snapshot giá, `PENDING` |
+| FR-05 | `OrdersModule`, transaction `Serializable` + optimistic locking (thiết kế gốc: `SELECT FOR UPDATE`) | ADR-002, ADR-004 | Trừ kho, snapshot giá, `PENDING` |
 | FR-06 | `PaymentsModule`, `PaymentGateway`, `PaymentReconciliationJob`, unique key | ADR-005, ADR-006, Deployment-01 | Reservation trước gateway; idempotent |
 | FR-07 | `OrdersModule`, `GET /orders/me`, Next.js history | ADR-003 | Lọc theo `jwt.userId` |
 | FR-08 | `Order.assertTransition()` (do `OrderStateMachine` hiện thực) | ADR-002, Class-01 | Nguồn duy nhất của transition |
@@ -674,19 +688,43 @@ Chi tiết và runbook ở [`deployment.md`](../deployment.md); sơ đồ UML �
 | NFR-04 | Docker, GitHub Actions, GHCR, Render (web + API + Postgres), health, rollback | ADR-001, ADR-006, Deployment-01 | Pipeline Task 4.4/5.3 |
 | NFR-05 | Transaction, `FOR UPDATE`, UNIQUE, state machine | ADR-004, ADR-005 | Khóa + idempotency |
 
-### 13.2. Thành phần → vị trí mã nguồn dự kiến
+### 13.2. Thành phần → vị trí mã nguồn thực tế
 
-| Thành phần | Vị trí dự kiến (Task 4–5) |
-| :--- | :--- |
-| Next.js app, manifest, service worker | `apps/web/app/`, `apps/web/public/` |
-| API bootstrap, module wiring | `apps/api/src/main.ts`, `apps/api/src/app.module.ts` |
-| Domain modules | `apps/api/src/{auth,users,products,orders,payments,promotions,loyalty,health}/` |
-| Prisma schema/migration/seed | `apps/api/prisma/` |
-| Payment port/adapter | `apps/api/src/payments/payment-gateway.interface.ts`, `mock-payment.gateway.ts` |
-| State machine/policies | `apps/api/src/orders/domain/`, `apps/api/src/promotions/domain/`, `apps/api/src/loyalty/domain/` |
-| Logging/config | `apps/api/src/common/logging/`, `apps/api/src/config/` |
-| Docker/Compose | `apps/api/Dockerfile`, `apps/web/Dockerfile`, `docker-compose.yml` |
-| CI/CD | `.github/workflows/ci.yml`, `.github/workflows/cd.yml` |
+Chú thích trạng thái: **Đủ** = đã hiện thực đúng thiết kế; **Khác** = đã hiện thực nhưng khác thiết kế (xem khối "Hiện thực thực tế" ở mục tương ứng); **Chưa** = chưa làm.
+
+| Thành phần (thiết kế) | Vị trí mã nguồn thực tế | Trạng thái | Yêu cầu / ADR |
+| :--- | :--- | :--- | :--- |
+| Next.js app, routes | `apps/web/app/` (`page.tsx`, `products/[id]`, `cart`, `checkout`, `orders`, `login`, `register`) | Đủ | FR-01..03, FR-07 / ADR-003 |
+| Manifest PWA | `apps/web/app/manifest.ts` | Đủ | NFR-03 / ADR-003 |
+| Service worker | `apps/web/public/` đang trống | Chưa | NFR-03 / ADR-003 |
+| Cart state (Zustand + persist) | `apps/web/lib/cart-store.ts`, test `cart-store.test.ts` | Đủ | FR-03 / ADR-009 |
+| Auth state client | `apps/web/lib/auth-store.ts` (dùng `localStorage`) | Khác | FR-04 / ADR-008 |
+| API client, `Idempotency-Key` | `apps/web/lib/api.ts`, `apps/web/lib/types.ts` | Đủ | FR-06 / ADR-009 |
+| Server state (TanStack Query) | `apps/web/app/providers.tsx` | Đủ | ADR-009 |
+| UI components | `apps/web/components/` (`product-grid`, `product-card`, `product-detail`, `cart-view`, `checkout-view`, `site-header`, `site-footer`) | Đủ | FR-01..03 |
+| API bootstrap, module wiring | `apps/api/src/main.ts`, `apps/api/src/app.module.ts` | Đủ | ADR-002 |
+| `AuthModule` (register/login, JWT, Bcrypt) | `apps/api/src/auth/` (`auth.service.ts`, `jwt.strategy.ts`, `jwt-auth.guard.ts`, `dto/`) | Đủ | FR-04, NFR-02 / ADR-008 |
+| `UsersModule` riêng | không có; `User` do `AuthModule` + Prisma quản lý | Khác | FR-04 |
+| `RolesGuard` | không có; kiểm tra role trực tiếp trong `orders.controller.ts`/`orders.service.ts` | Khác | FR-04 / ADR-008 |
+| `ProductsModule` | `apps/api/src/products/` | Đủ | FR-01, FR-02 / ADR-002 |
+| `OrdersModule` (tạo/xem/hủy/đổi trạng thái) | `apps/api/src/orders/` (`orders.service.ts`, `orders.controller.ts`, `dto/create-order.dto.ts`) | Khác (khóa) | FR-05, FR-07, FR-08 / ADR-002, ADR-004 |
+| State machine | `apps/api/src/orders/domain/order-state-machine.ts` (+ `.spec.ts`) | Đủ | FR-08 / ADR-002 |
+| `PaymentsModule` | `apps/api/src/payments/` (`payments.service.ts`, `payments.controller.ts`, `dto/create-payments.dto.ts`) | Khác (rút gọn) | FR-06, NFR-05 / ADR-005 |
+| `PaymentGateway` port, `MockPaymentGateway`, `PaymentReconciliationJob` | không có file tương ứng | Chưa | FR-06 / ADR-005 |
+| `PromotionsModule`, `PromotionPolicy` | `apps/api/src/promotions/` (`promotions.service.ts`, `promotions.controller.ts`, `domain/promotion-policy.ts`) | Đủ | FR-09 / ADR-004 |
+| `LoyaltyModule`, `LoyaltyPolicy` | `apps/api/src/loyalty/` (`loyalty.service.ts`, `domain/loyalty-policy.ts`) | Đủ | FR-10 / ADR-002 |
+| `HealthModule` | `apps/api/src/health/` | Đủ | FR-14 / ADR-007 |
+| Validate config | `apps/api/src/config/env.validation.ts` | Khác (hàm thuần, không dùng class-validator) | NFR-02 / ADR-007 |
+| Error filter | `apps/api/src/common/filters/http-exception.filter.ts` | Đủ | §5.2 |
+| Structured logging, `requestId` | không có (`apps/api/src/common/logging/` chưa tạo) | Chưa | ADR-007 |
+| Prisma schema/migration/seed | `apps/api/prisma/schema.prisma`, `apps/api/prisma/migrations/` (`20261020120000_init`, `20261025130000_add_product_version`), `apps/api/prisma/seed.ts` | Đủ | ADR-004 |
+| Docker Compose (dev) | `docker-compose.yml`, `Dockerfile.dev`, `.dockerignore` (ở thư mục gốc) | Khác (chỉ dev) | NFR-04 / ADR-001, ADR-006 |
+| Dockerfile production API/Web | `apps/api/Dockerfile`, `apps/web/Dockerfile` chưa tồn tại | Chưa | NFR-04 / ADR-006 |
+| CI | `.github/workflows/ci.yml` (pnpm 12.14.0, Node 22, frozen lockfile, prisma generate, lint, test, build; chạy khi PR vào `main`/`dev`) | Đủ | NFR-04 / ADR-001 |
+| CD (GHCR, Render) | `.github/workflows/cd.yml` chưa tồn tại | Chưa | NFR-04 / ADR-006 |
+| Monorepo workspace | `pnpm-workspace.yaml` (`apps/*`), `package.json` scripts gốc | Đủ | ADR-001 |
+
+> Mọi đường dẫn trong bảng đã được kiểm tra tồn tại tại thời điểm cập nhật (CV13). Khi thêm module mới, bổ sung một dòng vào bảng này trong cùng PR.
 
 ### 13.3. Trạng thái tạo tác
 
@@ -696,8 +734,11 @@ Chi tiết và runbook ở [`deployment.md`](../deployment.md); sơ đồ UML �
 | Task 2: Activity/Sequence/Class | **Đã có** | `docs/diagrams/*.puml` + SVG |
 | Task 3.1: kiến trúc + ADR | **Đã có trong tài liệu này** | Task 3.1 |
 | Task 3.2: deployment diagram + deployment.md | **Đã có** | `docs/diagrams/deployment.puml`, `docs/deployment.md` |
-| Source web/api | **Đã có khung CV02–CV06** | `apps/web`, `apps/api`; menu, schema, migration, seed |
-| CI/CD, Dockerfile API/Web, production URL | **Kế hoạch Task 4–5** | Docker Compose PostgreSQL local đã có; CI/CD và production sẽ bổ sung |
+| Source web/api | **Đã có** (cập nhật CV13) | `apps/web`, `apps/api`: menu, auth, đặt/hủy/đổi trạng thái đơn, thanh toán mô phỏng idempotent, khuyến mãi, loyalty, health; chi tiết ở §13.2 |
+| CI | **Đã có** | `.github/workflows/ci.yml` |
+| Docker Compose dev | **Đã có** | `docker-compose.yml`, `Dockerfile.dev` |
+| CD, Dockerfile production API/Web, production URL | **Chưa có** | Kế hoạch Task 4.4/5.3 |
+| ADR trạng thái hiện thực | **Đã có** (CV14) | Mục "Trạng thái hiện thực" cuối mỗi ADR; tổng hợp ở `adr/README.md` |
 
 ---
 
@@ -713,6 +754,7 @@ Chi tiết và runbook ở [`deployment.md`](../deployment.md); sơ đồ UML �
 | AR-06 | PWA cache asset cũ | UI lỗi sau deploy | Version cache, test sau deploy (ADR-003) |
 | AR-07 | Cold start Render gói thấp | Chậm lần đầu | Health check, giữ instance ấm nếu gói cho phép; ghi nhận trade-off |
 | AR-08 | Production chưa deploy | Task 5 không đạt | Checklist `deployment.md` §9; làm ở Task 5.3–5.4 |
+| AR-09 | Tài liệu lệch code (khóa, payment, logging) | Giảng viên/nhóm hiểu sai hệ thống | Khối "Hiện thực thực tế" + §13.2; cập nhật khi code đổi (CV13/CV14) |
 
 ---
 
