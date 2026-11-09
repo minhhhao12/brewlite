@@ -42,3 +42,10 @@ Chọn phương án **2**:
 - Chưa thêm Nx/Turborepo; chỉ thêm khi build chậm thực sự.
 - Không import code giữa web và API; chia sẻ contract qua REST/JSON, không qua package nội bộ.
 - CI có thể lọc path ở Task 4.4 nếu cần.
+
+## Trạng thái hiện thực (cập nhật 2026-11-09, CV14)
+
+- **Trạng thái**: Đã hiện thực – có điều chỉnh nhỏ
+- **Đúng thiết kế**: `pnpm-workspace.yaml` khai báo `apps/*`; root `package.json` có script `lint`, `test`, `build`, `prisma:generate`; CI (`.github/workflows/ci.yml`) chạy các script này một lần cho toàn repo.
+- **Khác thiết kế**: Docker hiện chỉ có `Dockerfile.dev` + `docker-compose.yml` ở thư mục gốc (chạy dev); `apps/api/Dockerfile` và `apps/web/Dockerfile` cho production **chưa có** (Task 4.4/5.3).
+- **Quyết định vẫn giữ nguyên**; không cần ADR mới.

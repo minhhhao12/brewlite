@@ -45,3 +45,11 @@ Chọn phương án **1**:
 - Expiry ngắn, CSP, không log token, không lưu token trong URL.
 - Cân nhắc httpOnly cookie + CSRF nếu đổi mô hình.
 - Thêm refresh/rotation khi có yêu cầu bảo mật cao hơn.
+
+## Trạng thái hiện thực (cập nhật 2026-11-09, CV14)
+
+- **Trạng thái**: Đã hiện thực – có điều chỉnh
+- **Đúng thiết kế**: đăng ký/đăng nhập ở `apps/api/src/auth/`; băm Bcrypt với `BCRYPT_SALT_ROUNDS = 10`; JWT hết hạn mặc định `1h` (`JWT_EXPIRES_IN`); `JwtStrategy` đọc lại `role`/`isActive` từ DB mỗi request nên không tin role trong token; email trùng → `409`; có hash giả khi đăng nhập sai email để giảm lộ thông tin; `ValidationPipe` (`whitelist`, `forbidNonWhitelisted`, `transform`) toàn cục ở `main.ts`.
+- **Khác thiết kế**: không có `RolesGuard`/decorator `@Roles` — phân quyền STAFF được kiểm tra trực tiếp trong `orders.controller.ts` và `orders.service.ts` (trả `403`); token phía client lưu ở `localStorage` (`apps/web/lib/auth-store.ts`) thay vì `sessionStorage` như mô tả.
+- **Chưa có**: Helmet/CSP, rate limit cho `/auth/login`.
+- **Ghi chú**: `localStorage` dễ bị XSS đọc hơn `sessionStorage`; nên ghi rõ là trade-off hoặc đổi theo thiết kế.

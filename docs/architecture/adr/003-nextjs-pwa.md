@@ -45,3 +45,10 @@ Chọn phương án **1**:
 - Version cache rõ ràng; chỉ cache asset same-origin.
 - Test lại luồng chính sau mỗi deploy.
 - Ghi nhận offline chỉ ở mức app shell, không hứa hẹn đặt món offline.
+
+## Trạng thái hiện thực (cập nhật 2026-11-09, CV14)
+
+- **Trạng thái**: Hiện thực một phần
+- **Đã có**: Next.js App Router, các route `/`, `/products/[id]`, `/cart`, `/checkout`, `/orders`, `/login`, `/register`; `apps/web/app/manifest.ts` (`display: standalone`, `lang: vi`).
+- **Chưa có**: service worker (`apps/web/public/` đang trống), chiến lược cache app shell, kiểm thử cài đặt PWA; vì vậy chưa đáp ứng đầy đủ phần "service worker" của NFR-03.
+- **Việc cần làm**: thêm `public/sw.js` + đăng ký ở client nếu nhóm muốn đạt đúng quyết định; hoặc tạo ADR mới nếu bỏ service worker.
