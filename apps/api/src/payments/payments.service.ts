@@ -14,6 +14,7 @@ import {
 } from '@prisma/client';
 import { LoyaltyService } from '../loyalty/loyalty.service';
 import { OrderStateMachine } from '../orders/domain/order-state-machine';
+import { OrdersService } from '../orders/orders.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePaymentDto } from './dto/create-payments.dto';
 
@@ -26,6 +27,7 @@ export class PaymentsService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly loyaltyService: LoyaltyService,
+    private readonly ordersService: OrdersService,
   ) {}
 
   async create(dto: CreatePaymentInput) {
@@ -50,6 +52,19 @@ export class PaymentsService {
 
     if (!order) {
       throw new NotFoundException('Không tìm thấy đơn hàng.');
+    }
+
+    // Lazy expiry: đơn chưa thanh toán quá hạn bị hủy trước khi xử lý thanh toán.
+    if (
+      order.status === OrderStatus.PENDING ||
+      order.status === OrderStatus.PAYMENT_FAILED
+    ) {
+      const expired = await this.ordersService.expireOrderIfNeeded(order.orderId);
+      if (expired) {
+        throw new ConflictException(
+          'Đơn hàng đã quá hạn thanh toán và bị hủy tự động. Vui lòng tạo đơn mới.',
+        );
+      }
     }
 
     // Retry cùng khóa sẽ trả về kết quả đã lưu, không tạo payment mới.

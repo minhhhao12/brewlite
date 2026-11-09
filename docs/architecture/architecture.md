@@ -459,7 +459,7 @@ COMMIT
 - Timeout chưa xác minh: **không** kết luận `FAILED`; giữ `PROCESSING`, đơn `PENDING`, job đối soát chốt sau (FR-06, RSK-03).
 - Nếu gateway đã thành công nhưng transaction cập nhật DB thất bại: **không** gọi gateway lần 2; giữ `PROCESSING` và đối soát (FR-06).
 
-> **Hiện thực thực tế (CV17/CV13)**: `PaymentsService.create` (`apps/api/src/payments/payments.service.ts`) hiện thực **bản rút gọn** của luồng trên: (1) tra `Payment` theo unique `(userId, orderId, idempotencyKey)` – có rồi thì trả kết quả đã lưu (`reused: true`); (2) kiểm tra trạng thái đơn `PENDING`/`PAYMENT_FAILED`, gọi `OrderStateMachine.assertTransition`; (3) **một** `$transaction`: chuyển trạng thái đơn bằng `updateMany` có điều kiện (chỉ một request thắng, request thua nhận `409`) rồi `INSERT Payment` (`PAID` hoặc `FAILED`, có `transactionReference` dạng `MOCK-...`); (4) sau commit gọi `LoyaltyService.earnPoints` (lỗi loyalty không rollback thanh toán); (5) race cùng key → bắt `P2002`/`409` rồi đọc lại và trả kết quả của request thắng. **Chưa có**: bước reservation `PROCESSING`, `Order FOR UPDATE`, gọi gateway ngoài transaction, trạng thái `EXPIRED`, job đối soát. Lý do: gateway là mock chạy tức thời nên không có timeout chưa xác minh; các phần đó chỉ cần khi tích hợp gateway thật.
+> **Hiện thực thực tế (CV17/CV13)**: `PaymentsService.create` (`apps/api/src/payments/payments.service.ts`) hiện thực **bản rút gọn** của luồng trên: (0) gọi `OrdersService.expireOrderIfNeeded` để lazy-expire đơn `PENDING`/`PAYMENT_FAILED` quá hạn (nếu vừa hủy thì trả `409`); (1) tra `Payment` theo unique `(userId, orderId, idempotencyKey)` – có rồi thì trả kết quả đã lưu (`reused: true`); (2) kiểm tra trạng thái đơn `PENDING`/`PAYMENT_FAILED`, gọi `OrderStateMachine.assertTransition`; (3) **một** `$transaction`: chuyển trạng thái đơn bằng `updateMany` có điều kiện (chỉ một request thắng, request thua nhận `409`) rồi `INSERT Payment` (`PAID` hoặc `FAILED`, có `transactionReference` dạng `MOCK-...`); (4) sau commit gọi `LoyaltyService.earnPoints` (lỗi loyalty không rollback thanh toán); (5) race cùng key → bắt `P2002`/`409` rồi đọc lại và trả kết quả của request thắng. **Chưa có**: bước reservation `PROCESSING`, `Order FOR UPDATE`, gọi gateway ngoài transaction, trạng thái `EXPIRED`, job đối soát. Lý do: gateway là mock chạy tức thời nên không có timeout chưa xác minh; các phần đó chỉ cần khi tích hợp gateway thật.
 
 #### Hủy đơn – `CANCELLED` (FR-08, FR-10)
 
@@ -474,10 +474,10 @@ BEGIN
 COMMIT
 ```
 
-> **Hiện thực thực tế**: `OrdersService.cancelOrder` thay `Order FOR UPDATE` bằng `updateMany where { orderId, status: <trạng thái đã đọc> }`; request thua cuộc nhận `count = 0` → `409`, không hoàn kho hai lần. Sau đó hoàn kho bằng `increment` (kèm `version`) và gọi `LoyaltyService.reversePoints` nếu đơn đang `PAID`. Customer hủy đơn của người khác hoặc hủy đơn đã `PAID` → `403`.
+> **Hiện thực thực tế**: `OrdersService.cancelOrder` thay `Order FOR UPDATE` bằng `updateMany where { orderId, status: <trạng thái đã đọc> }`; request thua cuộc nhận `count = 0` → `409`, không hoàn kho hai lần. Sau đó hoàn kho bằng `increment` (kèm `version`) và gọi `LoyaltyService.reversePoints` nếu đơn đang `PAID`. Customer hủy đơn của người khác hoặc hủy đơn đã `PAID` → `403`. Đơn lưu thêm `cancelReason` (`CUSTOMER`/`STAFF`/`SYSTEM_EXPIRED`), `cancelledAt`, `cancelledBy` (`null` khi hệ thống hủy).
 
 - Chỉ customer hủy `PENDING`/`PAYMENT_FAILED`; staff hỗ trợ `PAID → CANCELLED` (refund ngoài MVP mock).
-- Không auto-hủy theo timeout (theo Activity-01).
+- **Lazy expiry, không auto-hủy bằng cron/scheduler**: đơn `PENDING`/`PAYMENT_FAILED` quá hạn `createdAt + ORDER_PAYMENT_TIMEOUT_SECONDS` (mặc định `900` giây = 15 phút) bị chuyển `CANCELLED` với `cancelReason = SYSTEM_EXPIRED`, `cancelledBy = null`. Điểm kích hoạt: `GET /orders/:id`, `GET /orders/me` (quét đơn quá hạn của user), `POST /payments` (hủy rồi trả `409`) và `PATCH /orders/:id/status` (hủy/không cho chuyển trạng thái). Deadline luôn tính từ `createdAt`, không reset khi khách thử thanh toán lại. Hủy dùng `updateMany` có điều kiện `status` + `createdAt`, nên chỉ một request thắng và kho/nguyên liệu chỉ được hoàn đúng một lần; đơn `PAID`/`PREPARING`/`READY`/`COMPLETED` không bị đụng tới.
 
 ### 7.4. Migration và seed
 

@@ -15,6 +15,7 @@ Mỗi quyết định kiến trúc quan trọng được ghi thành một ADR ng
 | [ADR-007](./007-logging-health-config.md) | JSON logging, `/health`, `/health/ready`, validate env | Accepted – health + validate env đã có, logging JSON chưa |
 | [ADR-008](./008-auth-jwt-bcrypt.md) | JWT + Bcrypt + Guard/Role | Accepted – đã hiện thực (không RolesGuard, token ở localStorage) |
 | [ADR-009](./009-frontend-state.md) | Zustand cho cart + fetch wrapper cho server state | Accepted – đã hiện thực (thêm TanStack Query) |
+| [ADR-010](./010-vnpay-sandbox.md) | Tích hợp VNPay Sandbox (Return URL + IPN), giữ mock fallback | Proposed – kế hoạch triển khai |
 
 Cột **Trạng thái** phản ánh mức hiện thực trong mã nguồn tại 2026-11-09 (CV14); chi tiết ở mục "Trạng thái hiện thực" cuối mỗi ADR. Các quyết định **không bị sửa**; chỗ lệch được ghi nhận, nếu muốn đổi chính thức thì tạo ADR mới.
 

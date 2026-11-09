@@ -9,7 +9,13 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaymentsModule } from './payments.module';
 
-type OrderRow = { orderId: string; userId: string; status: string; totalAmount: Prisma.Decimal };
+type OrderRow = {
+  orderId: string;
+  userId: string;
+  status: string;
+  totalAmount: Prisma.Decimal;
+  createdAt: Date;
+};
 type PaymentRow = {
   paymentId: string;
   userId: string;
@@ -43,6 +49,11 @@ class FakePrisma {
 
   order = {
     findUnique: async ({ where }: { where: { orderId: string } }) => {
+      await tick();
+      return this.orders.get(where.orderId) ?? null;
+    },
+    // Lazy expiry đọc đơn trong transaction trước khi cho thanh toán.
+    findFirst: async ({ where }: { where: { orderId: string } }) => {
       await tick();
       return this.orders.get(where.orderId) ?? null;
     },
@@ -131,6 +142,7 @@ class FakePrisma {
       userId: randomUUID(),
       status,
       totalAmount: new Prisma.Decimal(45000),
+      createdAt: new Date(),
     };
     this.orders.set(row.orderId, row);
     return row;

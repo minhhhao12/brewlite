@@ -93,6 +93,10 @@ class FakePrismaCV21 {
     findUnique: async ({ where }: { where: { orderId: string } }) => {
       return this.orders.get(where.orderId) ?? null;
     },
+    // Lazy expiry đọc đơn trong transaction trước khi cho thanh toán.
+    findFirst: async ({ where }: { where: { orderId: string } }) => {
+      return this.orders.get(where.orderId) ?? null;
+    },
     updateMany: async ({ where, data }: { where: { orderId: string }; data: any }) => {
       const o = this.orders.get(where.orderId);
       if (!o) return { count: 0 };

@@ -48,6 +48,7 @@ services:
       CORS_ORIGIN: http://localhost:${WEB_PORT:-3001},http://127.0.0.1:${WEB_PORT:-3001}
       LOG_LEVEL: info
       PAYMENT_PROVIDER: mock
+      ORDER_PAYMENT_TIMEOUT_SECONDS: ${ORDER_PAYMENT_TIMEOUT_SECONDS:-900}
       TSC_WATCHFILE: DynamicPriorityPolling
       CHOKIDAR_USEPOLLING: 'true'
     ports:

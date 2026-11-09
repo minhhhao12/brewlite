@@ -50,6 +50,13 @@ enum PaymentStatus {
   FAILED
 }
 
+// Lý do hủy đơn: khách tự hủy, nhân viên hủy hoặc hệ thống tự hủy do quá hạn thanh toán.
+enum CancelReason {
+  CUSTOMER
+  STAFF
+  SYSTEM_EXPIRED
+}
+
 enum DiscountType {
   PERCENTAGE
   FIXED
@@ -127,6 +134,12 @@ model Order {
   totalAmount    Decimal     @db.Decimal(12, 2)
   status         OrderStatus @default(PENDING)
   createdAt      DateTime    @default(now())
+
+  // Thông tin hủy đơn: ai hủy và khi nào. Hệ thống tự hủy do quá hạn thanh toán
+  // dùng cancelReason = SYSTEM_EXPIRED và cancelledBy = null.
+  cancelReason CancelReason?
+  cancelledAt  DateTime?
+  cancelledBy  String?       @db.Uuid
 
   user                User                 @relation(fields: [userId], references: [userId], onDelete: Restrict)
   promotion           Promotion?           @relation(fields: [promotionId], references: [promotionId], onDelete: SetNull)
