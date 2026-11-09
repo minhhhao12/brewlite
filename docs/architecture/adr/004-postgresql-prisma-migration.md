@@ -45,3 +45,11 @@ Chọn phương án **1**:
 - MVP chạy **một instance API**; khi scale, chuyển migration sang release job/pre-deploy riêng.
 - Backup trước migration production; ghi rõ RPO/RTO thực tế của gói Render.
 - Kiểm tra migration trên DB sạch và DB có dữ liệu trước khi deploy.
+
+## Trạng thái hiện thực (cập nhật 2026-11-09, CV14)
+
+- **Trạng thái**: Đã hiện thực – khác thiết kế ở cơ chế khóa
+- **Đúng thiết kế**: PostgreSQL + Prisma Migrate (forward-only), schema ở `apps/api/prisma/schema.prisma`, migration `20261020120000_init` và `20261025130000_add_product_version`, seed ở `apps/api/prisma/seed.ts`; kết quả tính tiền do server tính, snapshot giá trong `OrderItem`/`OrderItemOption`.
+- **Khác thiết kế (quan trọng)**: tạo đơn **không** dùng `SELECT ... FOR UPDATE` mà dùng transaction `Serializable` + **optimistic locking** (cột `Product.version`, `updateMany` có điều kiện `stock >= qty`). Hủy đơn/thanh toán chốt trạng thái bằng `updateMany where status = <đã đọc>`. Mục tiêu NFR-05 (không oversell, không double-charge) vẫn đạt và có test đồng thời (`orders.concurrency.e2e.spec.ts`, `payments.idempotency.e2e.spec.ts`).
+- **Hệ quả của khác biệt**: khi tranh chấp cao có thể gặp lỗi serialization/xung đột và cần client thử lại; chấp nhận được với quy mô đồ án.
+- **Ghi chú tài liệu**: `architecture.md` §7.3 giữ pseudo-code `FOR UPDATE` làm thiết kế gốc và có khối "Hiện thực thực tế" mô tả cách đang chạy. Nếu nhóm muốn chính thức hóa, tạo ADR-010 "Optimistic locking + Serializable" và đánh dấu mục khóa của ADR-004 là Superseded (theo quy ước README).

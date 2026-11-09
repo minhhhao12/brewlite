@@ -45,3 +45,11 @@ Chọn phương án **1**:
 - Không log object request/response thô; chỉ log field an toàn.
 - Cấu hình health check interval hợp lý ở Render.
 - Nâng lên Pino/OpenTelemetry khi có nhu cầu thật.
+
+## Trạng thái hiện thực (cập nhật 2026-11-09, CV14)
+
+- **Trạng thái**: Hiện thực một phần
+- **Đã có**: `GET /health` (liveness) và `GET /health/ready` (`SELECT 1`, lỗi → `503`) ở `apps/api/src/health/health.controller.ts`; validate cấu hình lúc khởi động ở `apps/api/src/config/env.validation.ts` (production bắt buộc `DATABASE_URL`, `JWT_SECRET` ≥ 32 ký tự và khác giá trị local; kiểm tra `PORT`, `CORS_ORIGIN`, `LOG_LEVEL`); `HttpExceptionFilter` thống nhất định dạng lỗi.
+- **Khác thiết kế**: validate bằng hàm thuần `validateEnv` truyền vào `ConfigModule.forRoot({ validate })`, không dùng `class-validator`.
+- **Chưa có**: structured logging JSON và middleware `requestId`/`X-Request-Id` (đang dùng `Logger` mặc định của NestJS); `LOG_LEVEL` mới được validate chứ chưa điều khiển logger.
+- **Việc cần làm**: thêm logger JSON + middleware `requestId`, hoặc ghi nhận phạm vi giảm.
