@@ -2,22 +2,26 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   MAX_ITEM_QUANTITY,
+  resolveCartItems,
   selectCartCount,
-  selectCartSubtotal,
   useCartHydrated,
   useCartStore,
 } from '@/lib/cart-store';
+import { api } from '@/lib/api';
 import { formatVnd } from '@/lib/format';
-import type { CartItem } from '@/lib/types';
+import type { CartItem, Product } from '@/lib/types';
 import { useAuthStore } from '@/lib/auth-store';
-import { useRouter } from 'next/navigation';
 
 function CartSkeleton() {
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:py-12" aria-busy="true">
+    <div
+      className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:py-12"
+      aria-busy="true"
+    >
       <div className="h-5 w-36 animate-pulse rounded-full bg-coffee-100" />
       <div className="mt-4 flex items-center justify-between">
         <div className="h-8 w-48 animate-pulse rounded-full bg-coffee-100" />
@@ -74,13 +78,16 @@ function EmptyCart() {
           <circle cx="18" cy="20" r="1.4" />
         </svg>
       </div>
+
       <h1 className="mt-6 text-2xl font-semibold tracking-tight text-coffee-900 sm:text-3xl">
         Giỏ hàng của bạn đang trống
       </h1>
+
       <p className="mt-3 text-sm leading-6 text-coffee-600 sm:text-base">
-        Bạn chưa chọn đồ uống nào. Hãy khám phá thực đơn thơm ngon từ BrewLite và thêm món yêu thích
-        nhé!
+        Bạn chưa chọn đồ uống nào. Hãy khám phá thực đơn thơm ngon từ BrewLite
+        và thêm món yêu thích nhé!
       </p>
+
       <div className="mt-8">
         <Link
           href="/"
@@ -93,12 +100,49 @@ function EmptyCart() {
   );
 }
 
+function getItemIssue(
+  item: CartItem,
+  product: Product | undefined,
+): string | null {
+  if (!product || !item.productAvailable) {
+    return 'Sản phẩm không còn được bán. Vui lòng xóa món này khỏi giỏ hàng.';
+  }
+
+  if (product.stock <= 0) {
+    const missing = product.missingIngredients ?? [];
+
+    return missing.length > 0
+      ? `Món hiện không đủ nguyên liệu: ${missing.join(', ')}.`
+      : 'Món hiện đã hết hàng.';
+  }
+
+  if (item.quantity > product.stock) {
+    return `Chỉ còn ${product.stock} phần. Vui lòng điều chỉnh số lượng.`;
+  }
+
+  if (item.missingOptionIds.length > 0) {
+    const optionMap = new Map(
+      product.options.map((option) => [option.id, option]),
+    );
+
+    const unavailableNames = item.missingOptionIds.map(
+      (id) => optionMap.get(id)?.name ?? 'Tùy chọn đã bị xóa',
+    );
+
+    return `Tùy chọn ${unavailableNames.join(', ')} hiện không còn khả dụng.`;
+  }
+
+  return null;
+}
+
 function CartItemRow({
   item,
+  issue,
   onUpdateQuantity,
   onRemove,
 }: {
   item: CartItem;
+  issue: string | null;
   onUpdateQuantity: (key: string, qty: number) => void;
   onRemove: (key: string) => void;
 }) {
@@ -121,7 +165,9 @@ function CartItemRow({
 
   const handleBlur = () => {
     setIsEditing(false);
+
     const parsed = parseInt(tempQty, 10);
+
     if (Number.isFinite(parsed) && parsed > 0) {
       onUpdateQuantity(item.key, parsed);
     } else {
@@ -137,19 +183,23 @@ function CartItemRow({
       <div className="flex gap-4">
         <Link
           href={`/products/${item.productId}`}
-          className="relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl bg-coffee-100 sm:h-24 sm:w-24"
+          className="relative grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-2xl bg-coffee-100 text-xs font-bold text-coffee-400 sm:h-24 sm:w-24"
           aria-label={`Xem lại ${item.productName}`}
         >
-          <Image
-            src={item.imageUrl}
-            alt={item.productName}
-            fill
-            sizes="96px"
-            className="object-cover transition duration-300 group-hover:scale-105"
-          />
+          {item.imageUrl ? (
+            <Image
+              src={item.imageUrl}
+              alt={item.productName}
+              fill
+              sizes="96px"
+              className="object-cover transition duration-300 group-hover:scale-105"
+            />
+          ) : (
+            'BL'
+          )}
         </Link>
 
-        <div className="flex flex-1 flex-col justify-between min-w-0">
+        <div className="flex min-w-0 flex-1 flex-col justify-between">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <h2 className="truncate text-base font-semibold text-coffee-900 sm:text-lg">
@@ -171,11 +221,11 @@ function CartItemRow({
                   </span>
                 ) : null}
 
-                {item.toppings && item.toppings.length > 0 ? (
+                {item.toppings.length > 0 ? (
                   item.toppings.map((topping) => (
                     <span
                       key={topping.id}
-                      className="inline-flex items-center rounded-lg bg-amber-50 border border-amber-200/60 px-2 py-0.5 text-coffee-700"
+                      className="inline-flex items-center rounded-lg border border-amber-200/60 bg-amber-50 px-2 py-0.5 text-coffee-700"
                     >
                       +{topping.name} (+{formatVnd(topping.priceAdjustment)})
                     </span>
@@ -214,14 +264,19 @@ function CartItemRow({
             <div>
               <p className="text-xs text-coffee-500">
                 Đơn giá:{' '}
-                <span className="font-medium text-coffee-700">{formatVnd(item.unitPrice)}</span>
+                <span className="font-medium text-coffee-700">
+                  {formatVnd(item.unitPrice)}
+                </span>
               </p>
+
               <div className="mt-1.5 flex items-center gap-2">
                 <button
                   type="button"
                   onClick={handleDecrement}
-                  aria-label={item.quantity === 1 ? 'Xóa khỏi giỏ' : 'Giảm số lượng'}
-                  className="grid h-8 w-8 place-items-center rounded-full border border-coffee-200 bg-white text-base font-semibold text-coffee-800 transition hover:bg-coffee-100 hover:border-coffee-300 active:scale-95"
+                  aria-label={
+                    item.quantity === 1 ? 'Xóa khỏi giỏ' : 'Giảm số lượng'
+                  }
+                  className="grid h-8 w-8 place-items-center rounded-full border border-coffee-200 bg-white text-base font-semibold text-coffee-800 transition hover:border-coffee-300 hover:bg-coffee-100 active:scale-95"
                 >
                   {item.quantity === 1 ? '🗑' : '−'}
                 </button>
@@ -235,11 +290,11 @@ function CartItemRow({
                     setIsEditing(true);
                     setTempQty(String(item.quantity));
                   }}
-                  onChange={(e) => setTempQty(e.target.value)}
+                  onChange={(event) => setTempQty(event.target.value)}
                   onBlur={handleBlur}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      (e.target as HTMLInputElement).blur();
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      (event.target as HTMLInputElement).blur();
                     }
                   }}
                   aria-label={`Số lượng ${item.productName}`}
@@ -251,7 +306,7 @@ function CartItemRow({
                   onClick={handleIncrement}
                   disabled={item.quantity >= MAX_ITEM_QUANTITY}
                   aria-label="Tăng số lượng"
-                  className="grid h-8 w-8 place-items-center rounded-full border border-coffee-200 bg-white text-base font-semibold text-coffee-800 transition hover:bg-coffee-100 hover:border-coffee-300 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="grid h-8 w-8 place-items-center rounded-full border border-coffee-200 bg-white text-base font-semibold text-coffee-800 transition hover:border-coffee-300 hover:bg-coffee-100 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   +
                 </button>
@@ -267,6 +322,16 @@ function CartItemRow({
           </div>
         </div>
       </div>
+
+      {issue ? (
+        <div
+          role="alert"
+          className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900"
+        >
+          <span className="font-semibold">Cần điều chỉnh: </span>
+          {issue}
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -275,21 +340,98 @@ export function CartView() {
   const router = useRouter();
   const token = useAuthStore((state) => state.token);
 
-  const items = useCartStore((state) => state.items);
+  const selections = useCartStore((state) => state.items);
   const updateQuantity = useCartStore((state) => state.updateQuantity);
   const removeItem = useCartStore((state) => state.removeItem);
   const clear = useCartStore((state) => state.clear);
+
   const itemCount = useCartStore(selectCartCount);
-  const subtotal = useCartStore(selectCartSubtotal);
   const hasHydrated = useCartHydrated();
 
-  const [checkoutNotice, setCheckoutNotice] = useState<string | null>(null);
+  const [products, setProducts] = useState<Product[] | null>(null);
+  const [isValidating, setIsValidating] = useState(true);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!hasHydrated) return;
+
+    let cancelled = false;
+
+    const validateCart = async () => {
+      setIsValidating(true);
+      setValidationError(null);
+
+      try {
+        const latestProducts = await api.getProducts();
+
+        if (cancelled) return;
+
+        setProducts(latestProducts);
+      } catch (error) {
+        if (cancelled) return;
+
+        setValidationError(
+          error instanceof Error
+            ? error.message
+            : 'Không thể kiểm tra tình trạng sản phẩm.',
+        );
+      } finally {
+        if (!cancelled) {
+          setIsValidating(false);
+        }
+      }
+    };
+
+    void validateCart();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasHydrated]);
+
+  const items = useMemo(
+    () => (products ? resolveCartItems(selections, products) : []),
+    [selections, products],
+  );
+
+  const subtotal = items.reduce(
+    (sum, item) => sum + item.unitPrice * item.quantity,
+    0,
+  );
+
+  const productMap = useMemo(
+    () => new Map((products ?? []).map((product) => [product.id, product])),
+    [products],
+  );
+
+  const itemIssues = useMemo(() => {
+    const issues = new Map<string, string>();
+
+    if (!products) return issues;
+
+    for (const item of items) {
+      const issue = getItemIssue(item, productMap.get(item.productId));
+
+      if (issue) {
+        issues.set(item.key, issue);
+      }
+    }
+
+    return issues;
+  }, [items, products, productMap]);
+
+  const hasInvalidItems = itemIssues.size > 0;
+  const canCheckout =
+    !isValidating &&
+    !validationError &&
+    products !== null &&
+    !hasInvalidItems;
 
   if (!hasHydrated) {
     return <CartSkeleton />;
   }
 
-  if (items.length === 0) {
+  if (selections.length === 0) {
     return <EmptyCart />;
   }
 
@@ -300,6 +442,8 @@ export function CartView() {
   };
 
   const handleCheckoutClick = () => {
+    if (!canCheckout) return;
+
     if (!token) {
       router.push('/login?redirect=/checkout');
     } else {
@@ -316,25 +460,12 @@ export function CartView() {
         >
           <span aria-hidden="true">←</span> Tiếp tục chọn món
         </Link>
+
         <button
           type="button"
           onClick={handleClearCart}
-          className="inline-flex items-center gap-1.5 rounded-full border border-coffee-200 bg-white/80 px-3.5 py-1.5 text-xs font-semibold text-coffee-700 transition hover:bg-red-50 hover:border-red-200 hover:text-red-600"
+          className="inline-flex items-center gap-1.5 rounded-full border border-coffee-200 bg-white/80 px-3.5 py-1.5 text-xs font-semibold text-coffee-700 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
         >
-          <svg
-            aria-hidden="true"
-            className="h-3.5 w-3.5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-            />
-          </svg>
           Xóa tất cả
         </button>
       </div>
@@ -343,14 +474,47 @@ export function CartView() {
         <h1 className="text-2xl font-semibold tracking-tight text-coffee-900 sm:text-3xl">
           Giỏ hàng của bạn
         </h1>
+
         <p className="mt-1 text-sm text-coffee-600">
-          Đang có <span className="font-semibold text-coffee-900">{itemCount}</span> ly đồ uống
-          trong giỏ hàng.
+          Đang có{' '}
+          <span className="font-semibold text-coffee-900">{itemCount}</span>{' '}
+          ly đồ uống trong giỏ hàng.
         </p>
       </div>
 
+      {isValidating ? (
+        <div
+          role="status"
+          className="mb-5 rounded-2xl border border-coffee-200 bg-coffee-50 p-4 text-sm text-coffee-700"
+        >
+          Đang kiểm tra giá và tình trạng sản phẩm...
+        </div>
+      ) : null}
+
+      {validationError ? (
+        <div
+          role="alert"
+          className="mb-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+        >
+          Không thể xác nhận tình trạng giỏ hàng: {validationError}
+          <p className="mt-1">
+            Vui lòng tải lại trang hoặc thử lại sau. Bạn chưa thể đặt hàng lúc
+            này.
+          </p>
+        </div>
+      ) : null}
+
+      {hasInvalidItems ? (
+        <div
+          role="alert"
+          className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
+        >
+          Một số sản phẩm đã thay đổi tình trạng. Vui lòng kiểm tra và điều
+          chỉnh giỏ hàng trước khi đặt hàng.
+        </div>
+      ) : null}
+
       <div className="grid gap-8 lg:grid-cols-12 lg:items-start">
-        {/* Danh sách món */}
         <section
           aria-label="Danh sách món trong giỏ hàng"
           className="space-y-4 lg:col-span-7 xl:col-span-8"
@@ -359,35 +523,48 @@ export function CartView() {
             <CartItemRow
               key={item.key}
               item={item}
+              issue={itemIssues.get(item.key) ?? null}
               onUpdateQuantity={updateQuantity}
               onRemove={removeItem}
             />
           ))}
         </section>
 
-        {/* Tóm tắt đơn hàng & Tổng tiền */}
         <aside
           aria-label="Tóm tắt đơn hàng"
           className="sticky top-24 rounded-3xl border border-coffee-100 bg-white/95 p-6 shadow-card lg:col-span-5 xl:col-span-4"
         >
-          <h2 className="text-lg font-semibold text-coffee-900">Tóm tắt đơn hàng</h2>
+          <h2 className="text-lg font-semibold text-coffee-900">
+            Tóm tắt đơn hàng
+          </h2>
 
           <div className="mt-5 space-y-3 text-sm">
             <div className="flex items-center justify-between text-coffee-600">
               <span>Tổng số lượng</span>
-              <span className="font-medium text-coffee-900">{itemCount} ly</span>
+              <span className="font-medium text-coffee-900">
+                {itemCount} ly
+              </span>
             </div>
+
             <div className="flex items-center justify-between text-coffee-600">
               <span>Tạm tính</span>
-              <span className="font-medium text-coffee-900">{formatVnd(subtotal)}</span>
+              <span className="font-medium text-coffee-900">
+                {formatVnd(subtotal)}
+              </span>
             </div>
+
             <div className="flex items-center justify-between text-coffee-600">
               <span>Hình thức nhận</span>
-              <span className="font-medium text-coffee-900">Nhận tại quầy</span>
+              <span className="font-medium text-coffee-900">
+                Nhận tại quầy
+              </span>
             </div>
+
             <div className="flex items-center justify-between text-coffee-600">
               <span>Phí dịch vụ</span>
-              <span className="font-semibold text-green-700">Miễn phí</span>
+              <span className="font-semibold text-green-700">
+                Miễn phí
+              </span>
             </div>
           </div>
 
@@ -395,9 +572,14 @@ export function CartView() {
 
           <div className="flex items-baseline justify-between gap-3">
             <div>
-              <span className="text-base font-semibold text-coffee-900">Tổng thanh toán</span>
-              <p className="text-xs text-coffee-500">Đã bao gồm VAT & tùy chọn</p>
+              <span className="text-base font-semibold text-coffee-900">
+                Tổng thanh toán
+              </span>
+              <p className="text-xs text-coffee-500">
+                Giá tạm tính theo dữ liệu sản phẩm mới nhất
+              </p>
             </div>
+
             <span
               data-testid="cart-total-price"
               className="text-2xl font-bold tracking-tight text-coffee-900"
@@ -410,9 +592,16 @@ export function CartView() {
             <button
               type="button"
               onClick={handleCheckoutClick}
-              className="w-full rounded-full bg-coffee-800 py-3.5 text-center text-sm font-semibold text-cream transition hover:bg-coffee-700 shadow-sm"
+              disabled={!canCheckout}
+              className="w-full rounded-full bg-coffee-800 py-3.5 text-center text-sm font-semibold text-cream shadow-sm transition hover:bg-coffee-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Đặt hàng ngay
+              {isValidating
+                ? 'Đang kiểm tra sản phẩm...'
+                : validationError
+                  ? 'Chưa thể đặt hàng'
+                  : hasInvalidItems
+                    ? 'Vui lòng kiểm tra giỏ hàng'
+                    : 'Đặt hàng ngay'}
             </button>
 
             <Link
@@ -423,24 +612,14 @@ export function CartView() {
             </Link>
           </div>
 
-          {checkoutNotice ? (
-            <div
-              role="status"
-              className="mt-4 rounded-2xl bg-amber-50 border border-amber-200 p-3.5 text-xs leading-relaxed text-amber-900"
-            >
-              <div className="flex items-start gap-2">
-                <span className="shrink-0 text-amber-600">ℹ</span>
-                <span>{checkoutNotice}</span>
-              </div>
-            </div>
-          ) : null}
-
           <div className="mt-5 space-y-2 border-t border-coffee-100/60 pt-4 text-xs text-coffee-500">
             <p className="flex items-center gap-1.5">
-              <span className="text-coffee-600">✓</span> Đồ uống pha tươi ngon sau khi đặt hàng
+              <span className="text-coffee-600">✓</span>
+              Đồ uống pha tươi ngon sau khi đặt hàng
             </p>
             <p className="flex items-center gap-1.5">
-              <span className="text-coffee-600">✓</span> Giỏ hàng được tự động lưu lại trên máy
+              <span className="text-coffee-600">✓</span>
+              Giỏ hàng được tự động lưu lại trên máy
             </p>
           </div>
         </aside>

@@ -1,12 +1,21 @@
 
-import { Injectable, Logger } from '@nestjs/common';
-import { LoyaltyTransaction, LoyaltyType, Prisma } from '@prisma/client';
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
+import {
+  LoyaltyTransaction,
+  LoyaltyType,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class LoyaltyService {
   private readonly logger = new Logger(LoyaltyService.name);
   private readonly VND_PER_POINT = 10_000;
+  private readonly MAX_TRANSACTION_RETRIES = 3;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -22,21 +31,19 @@ export class LoyaltyService {
   }
 
   /**
-   * Tính số điểm còn lại sau khi hoàn điểm.
-   * Không cho phép số điểm tích lũy bị âm.
+   * Tính số điểm thực tế có thể thu hồi.
+   * Không để số dư điểm bị âm.
    */
   private calculateReversalPoints(
     currentPoints: number,
     earnedPoints: number,
   ): number {
-    return Math.max(0, currentPoints - earnedPoints);
+    return Math.min(currentPoints, earnedPoints);
   }
 
   /**
-   * FR-10: Tích lũy điểm thưởng sau khi đơn hàng chuyển sang PAID.
-   * - Idempotent theo (orderId, EARN).
-   * - Ghi nhận lịch sử giao dịch.
-   * - Cộng điểm nguyên tử vào tài khoản.
+   * FR-10: Tích lũy điểm sau khi đơn hàng chuyển sang PAID.
+   * Idempotent theo (orderId, EARN).
    */
   async earnPoints(
     userId: string,
@@ -57,9 +64,16 @@ export class LoyaltyService {
         });
 
         if (existing) {
+          if (existing.userId !== userId) {
+            throw new ConflictException(
+              'Giao dịch tích điểm không thuộc người dùng này.',
+            );
+          }
+
           this.logger.debug(
-            `Đơn hàng ${orderId} đã được cộng điểm trước đó (${existing.points} điểm). Bỏ qua thao tác lặp.`,
+            `Đơn hàng ${orderId} đã được cộng điểm trước đó. Bỏ qua thao tác lặp.`,
           );
+
           return existing;
         }
 
@@ -82,7 +96,7 @@ export class LoyaltyService {
         }
 
         this.logger.log(
-          `Đã cộng ${points} điểm loyalty cho người dùng ${userId} từ đơn hàng ${orderId}.`,
+          `Đã cộng ${points} điểm cho user ${userId}, đơn ${orderId}.`,
         );
 
         return transaction;
@@ -102,13 +116,19 @@ export class LoyaltyService {
         });
 
         if (duplicate) {
+          if (duplicate.userId !== userId) {
+            throw new ConflictException(
+              'Giao dịch tích điểm không thuộc người dùng này.',
+            );
+          }
+
           return duplicate;
         }
       }
 
       this.logger.error(
-        `Lỗi khi cộng điểm loyalty cho user ${userId}, đơn ${orderId}: ${
-          error instanceof Error ? error.message : error
+        `Lỗi cộng điểm cho user ${userId}, đơn ${orderId}: ${
+          error instanceof Error ? error.message : String(error)
         }`,
       );
 
@@ -117,67 +137,147 @@ export class LoyaltyService {
   }
 
   /**
-   * Hoàn lại điểm thưởng khi đơn đã PAID bị hủy.
-   * - Idempotent theo (orderId, REVERSAL).
-   * - Không để điểm tích lũy bị âm.
+   * Hoàn điểm khi đơn hàng đã PAID bị hủy.
+   * Idempotent theo (orderId, REVERSAL).
+   *
+   * Serializable + retry P2034:
+   * tránh lost update khi nhiều đơn được hoàn điểm đồng thời.
    */
   async reversePoints(
     userId: string,
     orderId: string,
   ): Promise<LoyaltyTransaction | null> {
-    return this.prisma.$transaction(async (tx) => {
-      const earnTx = await tx.loyaltyTransaction.findUnique({
-        where: {
-          orderId_type: {
-            orderId,
-            type: LoyaltyType.EARN,
+    for (
+      let attempt = 1;
+      attempt <= this.MAX_TRANSACTION_RETRIES;
+      attempt++
+    ) {
+      try {
+        return await this.prisma.$transaction(
+          async (tx) => {
+            const earnTx = await tx.loyaltyTransaction.findUnique({
+              where: {
+                orderId_type: {
+                  orderId,
+                  type: LoyaltyType.EARN,
+                },
+              },
+            });
+
+            if (!earnTx) {
+              return null;
+            }
+
+            if (earnTx.userId !== userId) {
+              throw new ConflictException(
+                'Giao dịch tích điểm không thuộc người dùng này.',
+              );
+            }
+
+            const existingReversal =
+              await tx.loyaltyTransaction.findUnique({
+                where: {
+                  orderId_type: {
+                    orderId,
+                    type: LoyaltyType.REVERSAL,
+                  },
+                },
+              });
+
+            if (existingReversal) {
+              return existingReversal;
+            }
+
+            const user = await tx.user.findUniqueOrThrow({
+              where: { userId },
+              select: { loyaltyPoints: true },
+            });
+
+            const pointsToReverse = this.calculateReversalPoints(
+              user.loyaltyPoints,
+              earnTx.points,
+            );
+
+            const reversalTx = await tx.loyaltyTransaction.create({
+              data: {
+                userId,
+                orderId,
+                points: -pointsToReverse,
+                type: LoyaltyType.REVERSAL,
+              },
+            });
+
+            if (pointsToReverse > 0) {
+              await tx.user.update({
+                where: { userId },
+                data: {
+                  loyaltyPoints: {
+                    decrement: pointsToReverse,
+                  },
+                },
+              });
+            }
+
+            this.logger.log(
+              `Đã thu hồi ${pointsToReverse} điểm của user ${userId}, đơn ${orderId}.`,
+            );
+
+            return reversalTx;
           },
-        },
-      });
-
-      if (!earnTx) {
-        return null;
-      }
-
-      const existingReversal = await tx.loyaltyTransaction.findUnique({
-        where: {
-          orderId_type: {
-            orderId,
-            type: LoyaltyType.REVERSAL,
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
           },
-        },
-      });
+        );
+      } catch (error) {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        ) {
+          const duplicate = await this.prisma.loyaltyTransaction.findUnique({
+            where: {
+              orderId_type: {
+                orderId,
+                type: LoyaltyType.REVERSAL,
+              },
+            },
+          });
 
-      if (existingReversal) {
-        return existingReversal;
+          if (duplicate) {
+            if (duplicate.userId !== userId) {
+              throw new ConflictException(
+                'Giao dịch hoàn điểm không thuộc người dùng này.',
+              );
+            }
+
+            return duplicate;
+          }
+        }
+
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2034' &&
+          attempt < this.MAX_TRANSACTION_RETRIES
+        ) {
+          this.logger.warn(
+            `Xung đột transaction khi hoàn điểm đơn ${orderId}. Thử lại lần ${attempt + 1}.`,
+          );
+
+          continue;
+        }
+
+        this.logger.error(
+          `Lỗi hoàn điểm cho user ${userId}, đơn ${orderId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+
+        throw error;
       }
+    }
 
-      const user = await tx.user.findUniqueOrThrow({
-        where: { userId },
-        select: { loyaltyPoints: true },
-      });
-
-      const newPoints = this.calculateReversalPoints(
-        user.loyaltyPoints,
-        earnTx.points,
-      );
-
-      const reversalTx = await tx.loyaltyTransaction.create({
-        data: {
-          userId,
-          orderId,
-          points: -earnTx.points,
-          type: LoyaltyType.REVERSAL,
-        },
-      });
-
-      await tx.user.update({
-        where: { userId },
-        data: { loyaltyPoints: newPoints },
-      });
-
-      return reversalTx;
-    });
+    throw new Error(
+      `Không thể hoàn điểm cho đơn ${orderId} sau nhiều lần thử.`,
+    );
   }
 
   /**

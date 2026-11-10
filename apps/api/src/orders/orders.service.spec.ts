@@ -32,6 +32,7 @@ describe('OrdersService (FR-05, FR-08, FR-09, FR-10, NFR-05, CV21)', () => {
     productIngredient: { findMany: jest.Mock };
     ingredient: { updateMany: jest.Mock; findUnique: jest.Mock; update: jest.Mock };
     orderIngredientUsage: { createMany: jest.Mock; findMany: jest.Mock };
+    orderProductStockUsage: { createMany: jest.Mock; findMany: jest.Mock };
     order: {
       create: jest.Mock;
       findMany: jest.Mock;
@@ -92,7 +93,12 @@ describe('OrdersService (FR-05, FR-08, FR-09, FR-10, NFR-05, CV21)', () => {
         update: jest.fn(),
       },
       orderIngredientUsage: {
-        createMany: jest.fn(),
+        createMany: jest.fn().mockResolvedValue({ count: 0 }),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      // Service ghi/đọc lượng tồn kho món đã trừ theo đơn để hoàn đúng khi hủy.
+      orderProductStockUsage: {
+        createMany: jest.fn().mockResolvedValue({ count: 0 }),
         findMany: jest.fn().mockResolvedValue([]),
       },
       order: {
@@ -168,6 +174,8 @@ describe('OrdersService (FR-05, FR-08, FR-09, FR-10, NFR-05, CV21)', () => {
           stock: 1, // Chỉ còn 1 sản phẩm
         },
       ]);
+      prisma.product.updateMany.mockResolvedValue({ count: 0 });
+      prisma.product.findUnique.mockResolvedValue({ stock: 1, name: mockProduct.name });
 
       await expect(
         service.createOrder('user-1', {
@@ -400,7 +408,7 @@ describe('OrdersService (FR-05, FR-08, FR-09, FR-10, NFR-05, CV21)', () => {
         service.createOrder('user-1', {
           items: [{ productId: mockProduct.productId, quantity: 1 }],
         }),
-      ).rejects.toThrow('đã hết hàng hoặc không đủ số lượng trong kho');
+      ).rejects.toThrow('không đủ hàng');
     });
 
     it('tự động retry và thành công khi gặp xung đột version đồng thời nhưng kho vẫn còn đủ hàng (CV18)', async () => {
@@ -434,6 +442,7 @@ describe('OrdersService (FR-05, FR-08, FR-09, FR-10, NFR-05, CV21)', () => {
         userId: 'user-1',
         status: OrderStatus.PENDING,
         items: [{ productId: mockProduct.productId, quantity: 3 }],
+        productStockUsages: [{ productId: mockProduct.productId, quantity: 3 }],
       };
 
       prisma.order.findFirst.mockResolvedValue(pendingOrder);
@@ -452,6 +461,7 @@ describe('OrdersService (FR-05, FR-08, FR-09, FR-10, NFR-05, CV21)', () => {
         data: { stock: { increment: 3 }, version: { increment: 1 } },
       });
     });
+
     it('khách không được huỷ đơn đã thanh toán', async () => {
       prisma.order.findFirst.mockResolvedValue({
         orderId: 'order-1',
@@ -462,12 +472,14 @@ describe('OrdersService (FR-05, FR-08, FR-09, FR-10, NFR-05, CV21)', () => {
       await expect(service.cancelOrder('order-1', 'user-1')).rejects.toThrow(ForbiddenException);
       expect(prisma.product.update).not.toHaveBeenCalled();
     });
+
     it('không hoàn kho khi đơn vừa bị request khác hủy (count = 0)', async () => {
       prisma.order.findFirst.mockResolvedValue({
         orderId: 'order-1',
         userId: 'user-1',
         status: OrderStatus.PENDING,
         items: [{ productId: mockProduct.productId, quantity: 3 }],
+        productStockUsages: [{ productId: mockProduct.productId, quantity: 3 }],
       });
       prisma.order.updateMany.mockResolvedValue({ count: 0 });
 
@@ -504,6 +516,7 @@ describe('OrdersService (FR-05, FR-08, FR-09, FR-10, NFR-05, CV21)', () => {
         userId: 'user-1',
         status,
         items: [{ productId: mockProduct.productId, quantity: 3 }],
+        productStockUsages: [{ productId: mockProduct.productId, quantity: 3 }],
       });
 
       it('nhân viên không được hủy lại đơn đã CANCELLED (tránh hoàn kho lần hai)', async () => {
@@ -629,7 +642,7 @@ describe('OrdersService (FR-05, FR-08, FR-09, FR-10, NFR-05, CV21)', () => {
         where: { userId: 'user-1' },
         include: {
           items: {
-            include: { options: true },
+            include: { options: true, product: { select: { imageUrl: true } } },
           },
           promotion: true,
         },
@@ -703,7 +716,7 @@ describe('OrdersService (FR-05, FR-08, FR-09, FR-10, NFR-05, CV21)', () => {
         where: { orderCode: 'BL-20261024-9999' },
         include: {
           items: {
-            include: { options: true },
+            include: { options: true, product: { select: { imageUrl: true } } },
           },
           promotion: true,
         },
@@ -752,6 +765,7 @@ describe('OrdersService (FR-05, FR-08, FR-09, FR-10, NFR-05, CV21)', () => {
         userId: 'user-owner',
         status: OrderStatus.PAID,
         items: [{ productId: 'prod-1', quantity: 2 }],
+        productStockUsages: [{ productId: 'prod-1', quantity: 2 }],
       };
 
       prisma.order.findFirst.mockResolvedValue(paidOrder);
@@ -768,10 +782,7 @@ describe('OrdersService (FR-05, FR-08, FR-09, FR-10, NFR-05, CV21)', () => {
 
       await service.cancelOrder('order-paid', 'user-owner', UserRole.STAFF);
 
-      expect(mockLoyaltyService.reversePoints).toHaveBeenCalledWith(
-        'user-owner',
-        'order-paid',
-      );
+      expect(mockLoyaltyService.reversePoints).toHaveBeenCalledWith('user-owner', 'order-paid');
     });
 
     it('không gọi loyaltyService.reversePoints khi hủy đơn chưa thanh toán PENDING', async () => {
@@ -780,6 +791,7 @@ describe('OrdersService (FR-05, FR-08, FR-09, FR-10, NFR-05, CV21)', () => {
         userId: 'user-owner',
         status: OrderStatus.PENDING,
         items: [{ productId: 'prod-1', quantity: 1 }],
+        productStockUsages: [{ productId: 'prod-1', quantity: 1 }],
       };
 
       prisma.order.findFirst.mockResolvedValue(pendingOrder);

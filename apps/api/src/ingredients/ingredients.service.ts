@@ -22,11 +22,11 @@ function toResponse(ingredient: IngredientWithRecipes): IngredientResponse {
     id: ingredient.ingredientId,
     name: ingredient.name,
     unit: ingredient.unit,
-    stock: ingredient.stock,
+    stock: ingredient.stock.toNumber(),
     usedBy: ingredient.recipes.map((recipe) => ({
       productId: recipe.product.productId,
       productName: recipe.product.name,
-      quantityPerServing: recipe.quantityPerServing,
+      quantityPerServing: recipe.quantityPerServing.toNumber(),
     })),
   };
 }

@@ -1,3 +1,4 @@
+
 import { Prisma } from '@prisma/client';
 import { toProductResponse, type ProductWithOptions } from './product-response';
 
@@ -19,7 +20,12 @@ function product(
       productId: 'p1',
       ingredientId: `i${index}`,
       quantityPerServing: line.perServing,
-      ingredient: { ingredientId: `i${index}`, name: line.name, unit: 'g', stock: line.stock },
+      ingredient: {
+        ingredientId: `i${index}`,
+        name: line.name,
+        unit: 'g',
+        stock: line.stock,
+      },
     })),
   } as unknown as ProductWithOptions;
 }
@@ -32,13 +38,13 @@ describe('toProductResponse: món ngừng bán khi thiếu nguyên liệu', () =
   });
 
   it('đủ nguyên liệu: số bán được bị chặn bởi nguyên liệu cạn nhất', () => {
-    // matcha 100g/5g = 20 phần, sữa 3000ml/150ml = 20 phần, tồn kho món 30 => 20
     const res = toProductResponse(
       product(30, [
         { name: 'Bột matcha', stock: 100, perServing: 5 },
         { name: 'Sữa tươi', stock: 3000, perServing: 150 },
       ]),
     );
+
     expect(res.stock).toBe(20);
     expect(res.missingIngredients).toEqual([]);
   });
@@ -50,14 +56,18 @@ describe('toProductResponse: món ngừng bán khi thiếu nguyên liệu', () =
         { name: 'Sữa tươi', stock: 3000, perServing: 150 },
       ]),
     );
+
     expect(res.stock).toBe(0);
     expect(res.missingIngredients).toEqual(['Bột matcha']);
   });
 
   it('nguyên liệu dồi dào thì tồn kho món vẫn là giới hạn', () => {
     const res = toProductResponse(
-      product(3, [{ name: 'Sữa tươi', stock: 99999, perServing: 150 }]),
+      product(3, [
+        { name: 'Sữa tươi', stock: 99999, perServing: 150 },
+      ]),
     );
+
     expect(res.stock).toBe(3);
   });
 });

@@ -1,8 +1,8 @@
-
 import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -18,17 +18,21 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreatePaymentDto } from './dto/create-payments.dto';
 
 /** Sau khi controller đã hợp nhất header/body, khóa idempotency luôn có mặt. */
-export type CreatePaymentInput = CreatePaymentDto & { idempotencyKey: string };
+export type CreatePaymentInput = CreatePaymentDto & {
+  idempotencyKey: string;
+};
 
 @Injectable()
 export class PaymentsService {
+  private readonly logger = new Logger(PaymentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly loyaltyService: LoyaltyService,
   ) {}
 
-  async create(dto: CreatePaymentInput) {
+  async create(userId: string, dto: CreatePaymentInput) {
     const provider = this.config.get<string>('PAYMENT_PROVIDER', 'mock');
     const nodeEnv = this.config.get<string>('NODE_ENV', 'development');
 
@@ -44,29 +48,39 @@ export class PaymentsService {
       );
     }
 
-    const order = await this.prisma.order.findUnique({
-      where: { orderId: dto.orderId },
+    const order = await this.prisma.order.findFirst({
+      where: {
+        orderId: dto.orderId,
+        userId,
+      },
     });
 
     if (!order) {
       throw new NotFoundException('Không tìm thấy đơn hàng.');
     }
 
-    // Retry cùng khóa sẽ trả về kết quả đã lưu, không tạo payment mới.
-    const existing = await this.prisma.payment.findUnique({
-      where: {
-        userId_orderId_idempotencyKey: {
-          userId: order.userId,
-          orderId: order.orderId,
-          idempotencyKey: dto.idempotencyKey,
-        },
+    const paymentWhere = {
+      userId_orderId_idempotencyKey: {
+        userId: order.userId,
+        orderId: order.orderId,
+        idempotencyKey: dto.idempotencyKey,
       },
+    };
+
+    // Retry cùng khóa: trả về payment đã lưu.
+    const existing = await this.prisma.payment.findUnique({
+      where: paymentWhere,
     });
 
     if (existing) {
+      const latestOrder = await this.prisma.order.findUnique({
+        where: { orderId: order.orderId },
+        select: { status: true },
+      });
+
       return {
         payment: existing,
-        orderStatus: order.status,
+        orderStatus: latestOrder?.status ?? order.status,
         reused: true,
       };
     }
@@ -81,37 +95,43 @@ export class PaymentsService {
     }
 
     const failed = dto.simulateFailure === true;
+
     const paymentStatus = failed
       ? PaymentStatus.FAILED
       : PaymentStatus.PAID;
+
     const nextOrderStatus = failed
       ? OrderStatus.PAYMENT_FAILED
       : OrderStatus.PAID;
 
-    // FR-08: PaymentsService không tự định nghĩa transition, luôn hỏi OrderStateMachine.
-    // PAYMENT_FAILED -> PENDING (thử lại) rồi PENDING -> PAID | PAYMENT_FAILED.
+    // PAYMENT_FAILED -> PENDING -> PAID | PAYMENT_FAILED.
     if (order.status === OrderStatus.PAYMENT_FAILED) {
       OrderStateMachine.assertTransition(
         OrderStatus.PAYMENT_FAILED,
         OrderStatus.PENDING,
       );
     }
-    OrderStateMachine.assertTransition(OrderStatus.PENDING, nextOrderStatus);
+
+    OrderStateMachine.assertTransition(
+      OrderStatus.PENDING,
+      nextOrderStatus,
+    );
 
     const transactionReference =
       `MOCK-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
     try {
       const result = await this.prisma.$transaction(async (tx) => {
+        // Nếu thanh toán lại, chuyển PAYMENT_FAILED về PENDING trước.
         if (order.status === OrderStatus.PAYMENT_FAILED) {
           const reset = await tx.order.updateMany({
             where: {
-              orderId: order.orderId,
+              orderId: order.orderId, userId,
               status: OrderStatus.PAYMENT_FAILED,
             },
             data: { status: OrderStatus.PENDING },
           });
-          // Một request khác vừa đổi trạng thái đơn (ví dụ đã PAID) -> không ghi đè.
+
           if (reset.count !== 1) {
             throw new ConflictException(
               'Đơn hàng đã được xử lý bởi một yêu cầu khác.',
@@ -119,10 +139,10 @@ export class PaymentsService {
           }
         }
 
-        // Chỉ một yêu cầu được phép chuyển đơn PENDING.
+        // Chỉ một request được phép xử lý đơn PENDING.
         const updated = await tx.order.updateMany({
           where: {
-            orderId: order.orderId,
+            orderId: order.orderId, userId,
             status: OrderStatus.PENDING,
           },
           data: { status: nextOrderStatus },
@@ -153,28 +173,19 @@ export class PaymentsService {
         };
       });
 
-      // FR-10: Sau commit PENDING -> PAID, cộng loyaltyPoints cho user (idempotent theo orderId)
+      // Chỉ cộng điểm sau khi transaction thanh toán đã commit.
       if (result.orderStatus === OrderStatus.PAID) {
-        try {
-          const totalAmountNum =
-            order.totalAmount instanceof Prisma.Decimal
-              ? order.totalAmount.toNumber()
-              : Number(order.totalAmount);
-          await this.loyaltyService.earnPoints(
-            order.userId,
-            order.orderId,
-            totalAmountNum,
-          );
-        } catch (_loyaltyError) {
-          // Ghi nhận lỗi nhưng không rollback giao dịch thanh toán đã commit
-        }
+        await this.earnPointsSafely(
+          order.userId,
+          order.orderId,
+          order.totalAmount,
+        );
       }
 
       return result;
     } catch (error) {
-      // Retry đồng thời cùng Idempotency-Key: request thua cuộc có thể dính P2002
-      // (trùng unique key) hoặc 409 (đơn vừa bị request thắng cuộc đổi trạng thái).
-      // Cả hai trường hợp đều trả kết quả đã lưu của request thắng cuộc.
+      // Request thua cuộc trong tình huống đồng thời có thể gặp P2002
+      // hoặc ConflictException.
       const isRace =
         error instanceof ConflictException ||
         (error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -182,18 +193,13 @@ export class PaymentsService {
 
       if (isRace) {
         const duplicate = await this.prisma.payment.findUnique({
-          where: {
-            userId_orderId_idempotencyKey: {
-              userId: order.userId,
-              orderId: order.orderId,
-              idempotencyKey: dto.idempotencyKey,
-            },
-          },
+          where: paymentWhere,
         });
 
         if (duplicate) {
           const latestOrder = await this.prisma.order.findUnique({
             where: { orderId: order.orderId },
+            select: { status: true },
           });
 
           return {
@@ -205,6 +211,46 @@ export class PaymentsService {
       }
 
       throw error;
+    }
+  }
+
+  /**
+   * Cộng điểm sau thanh toán và đối soát nếu đơn bị hủy đồng thời.
+   */
+  private async earnPointsSafely(
+    userId: string,
+    orderId: string,
+    totalAmount: Prisma.Decimal,
+  ): Promise<void> {
+    try {
+      const amount = totalAmount.toNumber();
+
+      await this.loyaltyService.earnPoints(
+        userId,
+        orderId,
+        amount,
+      );
+
+      // Đơn có thể đã bị hủy trong lúc earnPoints thực hiện.
+      const latestOrder = await this.prisma.order.findUnique({
+        where: { orderId },
+        select: { status: true },
+      });
+
+      if (latestOrder?.status === OrderStatus.CANCELLED) {
+        await this.loyaltyService.reversePoints(userId, orderId);
+
+        this.logger.warn(
+          `Đơn ${orderId} đã bị hủy trong lúc cộng điểm. Đã thực hiện đối soát điểm.`,
+        );
+      }
+    } catch (error) {
+      // Không rollback payment đã commit chỉ vì lỗi loyalty.
+      this.logger.error(
+        `Không thể hoàn tất xử lý loyalty cho đơn ${orderId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 }

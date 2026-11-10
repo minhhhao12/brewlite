@@ -1,17 +1,29 @@
-import { ExecutionContext, ValidationPipe, type INestApplication } from '@nestjs/common';
+
+import {
+  ExecutionContext,
+  ValidationPipe,
+  type INestApplication,
+} from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
-import { DiscountType, OrderStatus, PaymentMethod, Prisma, PromotionStatus, UserRole } from '@prisma/client';
+import {
+  DiscountType,
+  OrderStatus,
+  PaymentMethod,
+  Prisma,
+  PromotionStatus,
+  UserRole,
+} from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { HttpExceptionFilter } from '../common/filters/http-exception.filter';
+import { LoyaltyModule } from '../loyalty/loyalty.module';
 import { OrdersModule } from '../orders/orders.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { PromotionsModule } from './promotions.module';
-import { LoyaltyModule } from '../loyalty/loyalty.module';
 
 class FakePrismaCV21 {
   readonly users = new Map<string, any>();
@@ -22,44 +34,97 @@ class FakePrismaCV21 {
   readonly loyaltyTransactions: any[] = [];
 
   user = {
-    findUnique: async ({ where }: { where: { userId: string } }) => {
+    findUnique: async ({
+      where,
+    }: {
+      where: { userId: string };
+    }) => {
       return this.users.get(where.userId) ?? null;
     },
-    update: async ({ where, data }: { where: { userId: string }; data: any }) => {
-      const u = this.users.get(where.userId);
-      if (!u) return null;
+
+    update: async ({
+      where,
+      data,
+    }: {
+      where: { userId: string };
+      data: any;
+    }) => {
+      const user = this.users.get(where.userId);
+
+      if (!user) return null;
+
       if (data.loyaltyPoints?.increment !== undefined) {
-        u.loyaltyPoints = (u.loyaltyPoints || 0) + data.loyaltyPoints.increment;
+        user.loyaltyPoints =
+          (user.loyaltyPoints || 0) +
+          data.loyaltyPoints.increment;
       } else if (typeof data.loyaltyPoints === 'number') {
-        u.loyaltyPoints = data.loyaltyPoints;
+        user.loyaltyPoints = data.loyaltyPoints;
       }
-      return u;
+
+      return user;
     },
   };
 
   // Các món trong test này không có công thức nguyên liệu.
-  productIngredient = { findMany: async () => [] };
-  orderIngredientUsage = { createMany: async () => ({ count: 0 }), findMany: async () => [] };
+  productIngredient = {
+    findMany: async () => [],
+  };
+
+  orderIngredientUsage = {
+    createMany: async () => ({ count: 0 }),
+    findMany: async () => [],
+  };
+
+  // Mock snapshot tồn kho Product.stock.
+  orderProductStockUsage = {
+    createMany: async ({ data }: { data: any[] }) => ({
+      count: data.length,
+    }),
+    findMany: async () => [],
+  };
 
   product = {
-    findMany: async ({ where }: { where: { productId: { in: string[] } } }) => {
+    findMany: async ({
+      where,
+    }: {
+      where: { productId: { in: string[] } };
+    }) => {
       return (where.productId.in || [])
         .map((id) => this.products.get(id))
         .filter(Boolean)
-        .map((p) => ({ ...p, basePrice: new Prisma.Decimal(p.basePrice) }));
+        .map((product) => ({
+          ...product,
+          basePrice: new Prisma.Decimal(product.basePrice),
+        }));
     },
+
     updateMany: async () => ({ count: 1 }),
   };
 
   promotion = {
-    findUnique: async ({ where }: { where: { code: string } }) => {
-      const p = this.promotions.get(where.code.toUpperCase());
-      if (!p) return null;
+    findUnique: async ({
+      where,
+    }: {
+      where: { code: string };
+    }) => {
+      const promotion = this.promotions.get(
+        where.code.toUpperCase(),
+      );
+
+      if (!promotion) return null;
+
       return {
-        ...p,
-        discountValue: new Prisma.Decimal(p.discountValue),
-        maxDiscount: p.maxDiscount !== null ? new Prisma.Decimal(p.maxDiscount) : null,
-        minimumOrderAmount: new Prisma.Decimal(p.minimumOrderAmount),
+        ...promotion,
+        discountValue: new Prisma.Decimal(
+          promotion.discountValue,
+        ),
+        maxDiscount:
+          promotion.maxDiscount !== null
+            ? new Prisma.Decimal(promotion.maxDiscount)
+            : null,
+        minimumOrderAmount: new Prisma.Decimal(
+          promotion.minimumOrderAmount,
+        ),
       };
     },
   };
@@ -67,6 +132,7 @@ class FakePrismaCV21 {
   order = {
     create: async ({ data }: { data: any }) => {
       const orderId = randomUUID();
+
       const row = {
         orderId,
         orderCode: data.orderCode,
@@ -77,66 +143,130 @@ class FakePrismaCV21 {
         totalAmount: data.totalAmount,
         status: data.status,
         createdAt: new Date(),
-        items: (data.items?.create || []).map((it: any) => ({
+
+        items: (data.items?.create || []).map((item: any) => ({
           orderItemId: randomUUID(),
-          ...it,
-          options: (it.options?.create || []).map((opt: any) => ({
-            orderItemOptionId: randomUUID(),
-            ...opt,
-          })),
+          ...item,
+          options: (item.options?.create || []).map(
+            (option: any) => ({
+              orderItemOptionId: randomUUID(),
+              ...option,
+            }),
+          ),
         })),
-        promotion: data.promotionId ? this.promotions.get(data.promotionId) : null,
+
+        promotion: data.promotionId
+          ? this.promotions.get(data.promotionId)
+          : null,
       };
+
       this.orders.set(orderId, row);
+
       return row;
     },
-    findUnique: async ({ where }: { where: { orderId: string } }) => {
+
+    findUnique: async ({
+      where,
+    }: {
+      where: { orderId: string };
+    }) => {
       return this.orders.get(where.orderId) ?? null;
     },
-    updateMany: async ({ where, data }: { where: { orderId: string }; data: any }) => {
-      const o = this.orders.get(where.orderId);
-      if (!o) return { count: 0 };
-      o.status = data.status;
+
+    updateMany: async ({
+      where,
+      data,
+    }: {
+      where: { orderId: string };
+      data: any;
+    }) => {
+      const order = this.orders.get(where.orderId);
+
+      if (!order) return { count: 0 };
+
+      order.status = data.status;
+
       return { count: 1 };
+    },
+
+    findFirst: async ({
+      where,
+    }: {
+      where: { orderId: string; userId: string };
+    }) => {
+      const order = this.orders.get(where.orderId);
+
+      if (!order || order.userId !== where.userId) {
+        return null;
+      }
+
+      return order;
     },
   };
 
   payment = {
     findUnique: async ({ where }: { where: any }) => {
       const key = where.userId_orderId_idempotencyKey;
+
       return (
         this.payments.find(
-          (p) =>
-            p.userId === key.userId &&
-            p.orderId === key.orderId &&
-            p.idempotencyKey === key.idempotencyKey,
+          (payment) =>
+            payment.userId === key.userId &&
+            payment.orderId === key.orderId &&
+            payment.idempotencyKey === key.idempotencyKey,
         ) ?? null
       );
     },
+
     create: async ({ data }: { data: any }) => {
-      const p = { paymentId: randomUUID(), ...data };
-      this.payments.push(p);
-      return p;
+      const payment = {
+        paymentId: randomUUID(),
+        ...data,
+      };
+
+      this.payments.push(payment);
+
+      return payment;
     },
   };
 
   loyaltyTransaction = {
-    findUnique: async ({ where }: { where: { orderId_type: { orderId: string; type: string } } }) => {
+    findUnique: async ({
+      where,
+    }: {
+      where: {
+        orderId_type: {
+          orderId: string;
+          type: string;
+        };
+      };
+    }) => {
       const { orderId, type } = where.orderId_type;
+
       return (
         this.loyaltyTransactions.find(
-          (tx) => tx.orderId === orderId && tx.type === type,
+          (transaction) =>
+            transaction.orderId === orderId &&
+            transaction.type === type,
         ) ?? null
       );
     },
+
     create: async ({ data }: { data: any }) => {
-      const tx = { transactionId: randomUUID(), ...data };
-      this.loyaltyTransactions.push(tx);
-      return tx;
+      const transaction = {
+        transactionId: randomUUID(),
+        ...data,
+      };
+
+      this.loyaltyTransactions.push(transaction);
+
+      return transaction;
     },
   };
 
-  $transaction = async <T>(callback: (tx: FakePrismaCV21) => Promise<T>): Promise<T> => {
+  $transaction = async <T>(
+    callback: (tx: FakePrismaCV21) => Promise<T>,
+  ): Promise<T> => {
     return callback(this);
   };
 }
@@ -144,6 +274,7 @@ class FakePrismaCV21 {
 describe('CV21 - Task 10: Khuyến mãi & Điểm thưởng E2E', () => {
   let app: INestApplication;
   let db: FakePrismaCV21;
+
   const testUserId = '11111111-1111-4111-8111-111111111111';
   const testProductId = '22222222-2222-4222-8222-222222222222';
   const promo10kId = '33333333-3333-4333-8333-333333333333';
@@ -151,7 +282,6 @@ describe('CV21 - Task 10: Khuyến mãi & Điểm thưởng E2E', () => {
   beforeEach(async () => {
     db = new FakePrismaCV21();
 
-    // Seed test user
     db.users.set(testUserId, {
       userId: testUserId,
       email: 'customer@brewlite.vn',
@@ -161,7 +291,6 @@ describe('CV21 - Task 10: Khuyến mãi & Điểm thưởng E2E', () => {
       isActive: true,
     });
 
-    // Seed test product: 45,000 VND, 100 stock
     db.products.set(testProductId, {
       productId: testProductId,
       name: 'Trà Sữa Oolong',
@@ -173,8 +302,6 @@ describe('CV21 - Task 10: Khuyến mãi & Điểm thưởng E2E', () => {
       options: [],
     });
 
-    // Seed promotions
-    // 1. Valid FIXED: GIAM10K (Min 30k)
     db.promotions.set('GIAM10K', {
       promotionId: promo10kId,
       code: 'GIAM10K',
@@ -187,7 +314,6 @@ describe('CV21 - Task 10: Khuyến mãi & Điểm thưởng E2E', () => {
       status: PromotionStatus.ACTIVE,
     });
 
-    // 2. Expired
     db.promotions.set('HETHAN', {
       promotionId: '44444444-4444-4444-8444-444444444444',
       code: 'HETHAN',
@@ -200,7 +326,6 @@ describe('CV21 - Task 10: Khuyến mãi & Điểm thưởng E2E', () => {
       status: PromotionStatus.ACTIVE,
     });
 
-    // 3. Min Order not met
     db.promotions.set('MIN100K', {
       promotionId: '55555555-5555-4555-8555-555555555555',
       code: 'MIN100K',
@@ -215,7 +340,10 @@ describe('CV21 - Task 10: Khuyến mãi & Điểm thưởng E2E', () => {
 
     const moduleRef = await Test.createTestingModule({
       imports: [
-        ConfigModule.forRoot({ isGlobal: true, ignoreEnvFile: true }),
+        ConfigModule.forRoot({
+          isGlobal: true,
+          ignoreEnvFile: true,
+        }),
         PrismaModule,
         PromotionsModule,
         LoyaltyModule,
@@ -227,11 +355,13 @@ describe('CV21 - Task 10: Khuyến mãi & Điểm thưởng E2E', () => {
       .useValue({
         canActivate: (context: ExecutionContext) => {
           const req = context.switchToHttp().getRequest();
+
           req.user = {
             userId: testUserId,
             email: 'customer@brewlite.vn',
             role: UserRole.CUSTOMER,
           };
+
           return true;
         },
       })
@@ -240,10 +370,17 @@ describe('CV21 - Task 10: Khuyến mãi & Điểm thưởng E2E', () => {
       .compile();
 
     app = moduleRef.createNestApplication();
+
     app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
     );
+
     app.useGlobalFilters(new HttpExceptionFilter());
+
     await app.init();
   });
 
@@ -253,76 +390,78 @@ describe('CV21 - Task 10: Khuyến mãi & Điểm thưởng E2E', () => {
 
   describe('Tiêu chí nghiệm thu 1: Mã sai bị từ chối', () => {
     it('từ chối khi mã khuyến mãi không tồn tại', async () => {
-      const res = await request(app.getHttpServer())
+      const response = await request(app.getHttpServer())
         .post('/orders')
         .send({
           items: [{ productId: testProductId, quantity: 1 }],
           promoCode: 'MA_KHONG_TON_TAI',
         });
 
-      expect(res.status).toBe(400);
-      expect(res.body.message).toContain('không tồn tại');
+      expect(response.status).toBe(400);
+      expect(response.body.message).toContain('không tồn tại');
     });
 
     it('từ chối khi mã khuyến mãi đã hết hạn', async () => {
-      const res = await request(app.getHttpServer())
+      const response = await request(app.getHttpServer())
         .post('/orders')
         .send({
           items: [{ productId: testProductId, quantity: 1 }],
           promoCode: 'HETHAN',
         });
 
-      expect(res.status).toBe(400);
-      expect(res.body.message).toContain('đã hết hạn');
+      expect(response.status).toBe(400);
+      expect(response.body.message).toContain('đã hết hạn');
     });
 
     it('từ chối khi đơn hàng không đạt giá trị tối thiểu', async () => {
-      const res = await request(app.getHttpServer())
+      const response = await request(app.getHttpServer())
         .post('/orders')
         .send({
-          items: [{ productId: testProductId, quantity: 1 }], // 45,000 VND < 100,000 VND
+          items: [{ productId: testProductId, quantity: 1 }],
           promoCode: 'MIN100K',
         });
 
-      expect(res.status).toBe(400);
-      expect(res.body.message).toContain('chưa đạt giá trị tối thiểu');
+      expect(response.status).toBe(400);
+      expect(response.body.message).toContain(
+        'chưa đạt giá trị tối thiểu',
+      );
     });
 
     it('áp dụng mã khuyến mãi hợp lệ thành công và tính đúng số tiền', async () => {
-      const res = await request(app.getHttpServer())
+      const response = await request(app.getHttpServer())
         .post('/orders')
         .send({
-          items: [{ productId: testProductId, quantity: 1 }], // 45,000 VND
+          items: [{ productId: testProductId, quantity: 1 }],
           promoCode: 'GIAM10K',
         });
 
-      expect(res.status).toBe(201);
-      expect(res.body.subtotal).toBe(45000);
-      expect(res.body.discountAmount).toBe(10000);
-      expect(res.body.totalAmount).toBe(35000);
-      expect(res.body.promotionId).toBe(promo10kId);
+      expect(response.status).toBe(201);
+      expect(response.body.subtotal).toBe(45000);
+      expect(response.body.discountAmount).toBe(10000);
+      expect(response.body.totalAmount).toBe(35000);
+      expect(response.body.promotionId).toBe(promo10kId);
     });
   });
 
   describe('Tiêu chí nghiệm thu 2: Điểm cộng đúng sau PAID', () => {
-    it('cộng điểm loyalty chuẩn xác cho user sau khi đơn chuyển sang PAID (floor(totalAmount / 10000))', async () => {
-      // 1. Tạo đơn hàng 45,000 VND (sau giảm 10k còn 35,000 VND)
-      const orderRes = await request(app.getHttpServer())
+    it('cộng điểm loyalty chuẩn xác cho user sau khi đơn chuyển sang PAID', async () => {
+      const orderResponse = await request(app.getHttpServer())
         .post('/orders')
         .send({
           items: [{ productId: testProductId, quantity: 1 }],
           promoCode: 'GIAM10K',
         });
 
-      const orderId = orderRes.body.orderId;
-      expect(orderRes.body.totalAmount).toBe(35000);
+      expect(orderResponse.status).toBe(201);
+      expect(orderResponse.body.totalAmount).toBe(35000);
 
-      // Điểm ban đầu là 0
+      const orderId = orderResponse.body.orderId;
+
       expect(db.users.get(testUserId).loyaltyPoints).toBe(0);
 
-      // 2. Thanh toán đơn hàng thành công
       const idempotencyKey = randomUUID();
-      const payRes = await request(app.getHttpServer())
+
+      const paymentResponse = await request(app.getHttpServer())
         .post('/payments')
         .set('Idempotency-Key', idempotencyKey)
         .send({
@@ -330,21 +469,24 @@ describe('CV21 - Task 10: Khuyến mãi & Điểm thưởng E2E', () => {
           method: PaymentMethod.WALLET,
         });
 
-      expect(payRes.status).toBe(201);
-      expect(payRes.body.orderStatus).toBe(OrderStatus.PAID);
+      expect(paymentResponse.status).toBe(201);
+      expect(paymentResponse.body.orderStatus).toBe(
+        OrderStatus.PAID,
+      );
 
-      // 3. Kiểm tra số điểm được cộng: 35,000 / 10,000 = 3 điểm
       const user = db.users.get(testUserId);
+
       expect(user.loyaltyPoints).toBe(3);
 
-      // Kiểm tra bản ghi LoyaltyTransaction
-      const tx = db.loyaltyTransactions.find((t) => t.orderId === orderId);
-      expect(tx).toBeDefined();
-      expect(tx.points).toBe(3);
-      expect(tx.type).toBe('EARN');
+      const transaction = db.loyaltyTransactions.find(
+        (item) => item.orderId === orderId,
+      );
 
-      // 4. Gọi lại thanh toán cùng Idempotency-Key -> Idempotent, điểm không bị cộng lần hai
-      const retryRes = await request(app.getHttpServer())
+      expect(transaction).toBeDefined();
+      expect(transaction.points).toBe(3);
+      expect(transaction.type).toBe('EARN');
+
+      const retryResponse = await request(app.getHttpServer())
         .post('/payments')
         .set('Idempotency-Key', idempotencyKey)
         .send({
@@ -352,24 +494,23 @@ describe('CV21 - Task 10: Khuyến mãi & Điểm thưởng E2E', () => {
           method: PaymentMethod.WALLET,
         });
 
-      expect(retryRes.status).toBe(201);
-      expect(retryRes.body.reused).toBe(true);
-      // Điểm vẫn là 3, không bị tăng lên 6
+      expect(retryResponse.status).toBe(201);
+      expect(retryResponse.body.reused).toBe(true);
       expect(db.users.get(testUserId).loyaltyPoints).toBe(3);
     });
 
-    it('không cộng điểm loyalty khi thanh toán bị thất bại (PAYMENT_FAILED)', async () => {
-      // 1. Tạo đơn hàng 45,000 VND
-      const orderRes = await request(app.getHttpServer())
+    it('không cộng điểm loyalty khi thanh toán thất bại', async () => {
+      const orderResponse = await request(app.getHttpServer())
         .post('/orders')
         .send({
           items: [{ productId: testProductId, quantity: 1 }],
         });
 
-      const orderId = orderRes.body.orderId;
+      expect(orderResponse.status).toBe(201);
 
-      // 2. Thanh toán giả lập thất bại
-      const payRes = await request(app.getHttpServer())
+      const orderId = orderResponse.body.orderId;
+
+      const paymentResponse = await request(app.getHttpServer())
         .post('/payments')
         .set('Idempotency-Key', randomUUID())
         .send({
@@ -378,12 +519,18 @@ describe('CV21 - Task 10: Khuyến mãi & Điểm thưởng E2E', () => {
           simulateFailure: true,
         });
 
-      expect(payRes.status).toBe(201);
-      expect(payRes.body.orderStatus).toBe(OrderStatus.PAYMENT_FAILED);
+      expect(paymentResponse.status).toBe(201);
+      expect(paymentResponse.body.orderStatus).toBe(
+        OrderStatus.PAYMENT_FAILED,
+      );
 
-      // Điểm vẫn giữ nguyên, không cộng
       expect(db.users.get(testUserId).loyaltyPoints).toBe(0);
-      expect(db.loyaltyTransactions.filter((t) => t.orderId === orderId)).toHaveLength(0);
+
+      expect(
+        db.loyaltyTransactions.filter(
+          (transaction) => transaction.orderId === orderId,
+        ),
+      ).toHaveLength(0);
     });
   });
 });

@@ -1,3 +1,4 @@
+
 import type { OptionType, Prisma, ProductStatus } from '@prisma/client';
 import {
   effectiveStock,
@@ -25,7 +26,7 @@ export type ProductResponse = {
   imageUrl: string;
   /** Số phần bán được thực tế = min(tồn kho món, số phần pha được theo nguyên liệu). */
   stock: number;
-  /** Tên các nguyên liệu không đủ cho 1 phần. Rỗng nghĩa là món không bị chặn vì nguyên liệu. */
+  /** Tên các nguyên liệu không đủ cho 1 phần. */
   missingIngredients: string[];
   status: ProductStatus;
   options: ProductOptionResponse[];
@@ -36,13 +37,19 @@ export function toRecipe(product: ProductWithOptions): RecipeLine[] {
     ingredientId: line.ingredientId,
     name: line.ingredient.name,
     unit: line.ingredient.unit,
-    quantityPerServing: line.quantityPerServing,
-    stock: line.ingredient.stock,
+    quantityPerServing: Number(line.quantityPerServing),
+    stock: Number(line.ingredient.stock),
   }));
 }
 
 export function toProductResponse(product: ProductWithOptions): ProductResponse {
   const recipe = toRecipe(product);
+  const productStock = Math.max(0, Number(product.stock));
+  const ingredientCapacity = effectiveStock(productStock, recipe);
+  const availableStock = Math.min(
+    productStock,
+    Math.max(0, ingredientCapacity),
+  );
 
   return {
     id: product.productId,
@@ -50,7 +57,7 @@ export function toProductResponse(product: ProductWithOptions): ProductResponse 
     description: product.description,
     price: product.basePrice.toNumber(),
     imageUrl: product.imageUrl,
-    stock: effectiveStock(product.stock, recipe),
+    stock: availableStock,
     missingIngredients: missingIngredients(recipe),
     status: product.status,
     options: product.options.map((option) => ({

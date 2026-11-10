@@ -1,14 +1,17 @@
-'use client';
-
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import type { CartItem, Product, ProductOption } from './types';
+import type {
+  CartItem,
+  CartSelection,
+  Product,
+  ProductOption,
+} from './types';
 
 export const MAX_ITEM_QUANTITY = 20;
 
 type CartState = {
-  items: CartItem[];
+  items: CartSelection[];
   hasHydrated: boolean;
   addItem: (
     product: Product,
@@ -27,6 +30,18 @@ function clampQuantity(quantity: number): number {
   return Math.min(MAX_ITEM_QUANTITY, Math.max(1, Math.trunc(quantity)));
 }
 
+function createCartKey(
+  productId: string,
+  sizeOptionId: string | null,
+  toppingOptionIds: string[],
+): string {
+  return [
+    productId,
+    sizeOptionId ?? 'no-size',
+    ...[...toppingOptionIds].sort(),
+  ].join(':');
+}
+
 function calculateUnitPrice(
   product: Product,
   size: ProductOption | null,
@@ -39,6 +54,100 @@ function calculateUnitPrice(
   );
 }
 
+/**
+ * Dựng dữ liệu hiển thị từ lựa chọn trong giỏ và dữ liệu Product API.
+ * Không sử dụng thông tin sản phẩm cũ được lưu trong localStorage.
+ */
+export function resolveCartItems(
+  selections: CartSelection[],
+  products: Product[],
+): CartItem[] {
+  const productMap = new Map(products.map((product) => [product.id, product]));
+
+  return selections.map((selection) => {
+    const product = productMap.get(selection.productId);
+
+    if (!product) {
+      return {
+        key: selection.key,
+        productId: selection.productId,
+        productName: 'Sản phẩm không còn khả dụng',
+        imageUrl: '',
+        size: null,
+        toppings: [],
+        quantity: selection.quantity,
+        unitPrice: 0,
+        sizeOptionId: selection.sizeOptionId,
+        toppingOptionIds: selection.toppingOptionIds,
+        productAvailable: false,
+        missingOptionIds: [
+          ...(selection.sizeOptionId ? [selection.sizeOptionId] : []),
+          ...selection.toppingOptionIds,
+        ],
+      };
+    }
+
+    const optionMap = new Map(
+      product.options.map((option) => [option.id, option]),
+    );
+
+    const size = selection.sizeOptionId
+      ? optionMap.get(selection.sizeOptionId) ?? null
+      : null;
+
+    const toppings = selection.toppingOptionIds
+      .map((id) => optionMap.get(id))
+      .filter((option): option is ProductOption => option !== undefined);
+
+    const missingOptionIds = [
+      ...(selection.sizeOptionId && !size ? [selection.sizeOptionId] : []),
+      ...selection.toppingOptionIds.filter((id) => !optionMap.has(id)),
+    ];
+
+    const allOptionsAvailable =
+      (!size || size.isAvailable) &&
+      toppings.length === selection.toppingOptionIds.length &&
+      toppings.every((topping) => topping.isAvailable);
+
+    return {
+      key: selection.key,
+      productId: product.id,
+      productName: product.name,
+      imageUrl: product.imageUrl,
+      size,
+      toppings,
+      quantity: selection.quantity,
+      unitPrice: calculateUnitPrice(product, size, toppings),
+      sizeOptionId: selection.sizeOptionId,
+      toppingOptionIds: selection.toppingOptionIds,
+      productAvailable: product.status === 'ACTIVE',
+      missingOptionIds: [
+        ...missingOptionIds,
+        ...(!allOptionsAvailable
+          ? [
+              ...(!size || size.isAvailable
+                ? []
+                : [size.id]),
+              ...toppings
+                .filter((topping) => !topping.isAvailable)
+                .map((topping) => topping.id),
+            ]
+          : []),
+      ],
+    };
+  });
+}
+
+/**
+ * Tính tạm tính từ CartItem đã được resolve bằng dữ liệu Product API.
+ */
+export function calculateCartSubtotal(items: CartItem[]): number {
+  return items.reduce(
+    (sum, item) => sum + item.unitPrice * item.quantity,
+    0,
+  );
+}
+
 export const useCartStore = create<CartState>()(
   persist(
     (set) => ({
@@ -47,10 +156,15 @@ export const useCartStore = create<CartState>()(
 
       addItem: (product, size, toppings, quantity = 1) =>
         set((state) => {
-          const toppingIds = toppings.map((topping) => topping.id).sort();
-          const key = [product.id, size?.id ?? 'no-size', ...toppingIds].join(':');
-          const existing = state.items.find((item) => item.key === key);
+          const toppingOptionIds = toppings.map((topping) => topping.id);
+          const sizeOptionId = size?.id ?? null;
+          const key = createCartKey(
+            product.id,
+            sizeOptionId,
+            toppingOptionIds,
+          );
           const safeQuantity = clampQuantity(quantity);
+          const existing = state.items.find((item) => item.key === key);
 
           if (existing) {
             return {
@@ -58,27 +172,26 @@ export const useCartStore = create<CartState>()(
                 item.key === key
                   ? {
                       ...item,
-                      quantity: Math.min(MAX_ITEM_QUANTITY, item.quantity + safeQuantity),
+                      quantity: Math.min(
+                        MAX_ITEM_QUANTITY,
+                        item.quantity + safeQuantity,
+                      ),
                     }
                   : item,
               ),
             };
           }
 
+          const newSelection: CartSelection = {
+            key,
+            productId: product.id,
+            sizeOptionId,
+            toppingOptionIds,
+            quantity: safeQuantity,
+          };
+
           return {
-            items: [
-              ...state.items,
-              {
-                key,
-                productId: product.id,
-                productName: product.name,
-                imageUrl: product.imageUrl,
-                size,
-                toppings,
-                quantity: safeQuantity,
-                unitPrice: calculateUnitPrice(product, size, toppings),
-              },
-            ],
+            items: [...state.items, newSelection],
           };
         }),
 
@@ -88,7 +201,9 @@ export const useCartStore = create<CartState>()(
             quantity <= 0
               ? state.items.filter((item) => item.key !== key)
               : state.items.map((item) =>
-                  item.key === key ? { ...item, quantity: clampQuantity(quantity) } : item,
+                  item.key === key
+                    ? { ...item, quantity: clampQuantity(quantity) }
+                    : item,
                 ),
         })),
 
@@ -103,11 +218,12 @@ export const useCartStore = create<CartState>()(
     }),
     {
       name: 'brewlite-cart',
-      version: 1,
+      version: 2,
       storage: createJSONStorage(() => {
         if (typeof window !== 'undefined' && window.localStorage) {
           return window.localStorage;
         }
+
         return {
           getItem: () => null,
           setItem: () => {},
@@ -115,6 +231,45 @@ export const useCartStore = create<CartState>()(
         };
       }),
       partialize: (state) => ({ items: state.items }),
+
+      // Chuyển dữ liệu giỏ hàng cũ (CartItem) sang CartSelection.
+      migrate: (persistedState: unknown) => {
+        const oldState = persistedState as {
+          items?: Array<{
+            key?: string;
+            productId?: string;
+            size?: ProductOption | null;
+            toppings?: ProductOption[];
+            quantity?: number;
+          }>;
+        };
+
+        const items: CartSelection[] = (oldState.items ?? [])
+          .filter((item) => Boolean(item.productId))
+          .map((item) => {
+            const sizeOptionId = item.size?.id ?? null;
+            const toppingOptionIds = (item.toppings ?? []).map(
+              (topping) => topping.id,
+            );
+
+            return {
+              key:
+                item.key ??
+                createCartKey(
+                  item.productId!,
+                  sizeOptionId,
+                  toppingOptionIds,
+                ),
+              productId: item.productId!,
+              sizeOptionId,
+              toppingOptionIds,
+              quantity: clampQuantity(item.quantity ?? 1),
+            };
+          });
+
+        return { items };
+      },
+
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);
       },
@@ -125,12 +280,9 @@ export const useCartStore = create<CartState>()(
 export const selectCartCount = (state: CartState): number =>
   state.items.reduce((sum, item) => sum + item.quantity, 0);
 
-export const selectCartSubtotal = (state: CartState): number =>
-  state.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
-
 /**
- * Hook để kiểm tra xem store đã được hydrate trên client chưa.
- * Giúp tránh hydration mismatch giữa SSR và Client (đặc biệt khi có dữ liệu trong localStorage).
+ * Kiểm tra store đã hydrate trên client chưa.
+ * Tránh hydration mismatch giữa SSR và dữ liệu localStorage.
  */
 export function useCartHydrated(): boolean {
   const [mounted, setMounted] = useState(false);
@@ -143,6 +295,7 @@ export function useCartHydrated(): boolean {
   return (
     mounted &&
     (storeHydrated ||
-      (typeof useCartStore.persist !== 'undefined' && useCartStore.persist.hasHydrated()))
+      (typeof useCartStore.persist !== 'undefined' &&
+        useCartStore.persist.hasHydrated()))
   );
 }
