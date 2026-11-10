@@ -7,6 +7,7 @@ import type {
   PaymentResponse,
   Product,
   ProductOption,
+  User,
 } from './types';
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
 
@@ -229,6 +230,9 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code, subtotal }),
     }),
+
+    // Lấy thông tin tài khoản hiện tại
+    getMe: (): Promise<User> => request<User>('/auth/me'),
 };
 
 export { API_URL };

@@ -23,6 +23,7 @@ describe('AuthService', () => {
       email: 'a@example.com',
       username: 'a',
       role: 'CUSTOMER',
+      loyaltyPoints: 0,
     });
 
     await service.register({ email: 'a@example.com', password: 'matkhau123' });
@@ -56,6 +57,7 @@ describe('AuthService', () => {
       email: 'a@example.com',
       username: 'a',
       role: 'STAFF',
+      loyaltyPoints: 25,
       isActive: true,
       passwordHash: await bcrypt.hash('matkhau123', 10),
     });
@@ -68,7 +70,13 @@ describe('AuthService', () => {
       role: 'STAFF',
     });
     expect(result.accessToken).toBe('signed.jwt.token');
-    expect(result.user).toEqual({ id: 'u1', email: 'a@example.com', username: 'a', role: 'STAFF' });
+    expect(result.user).toEqual({
+      id: 'u1',
+      email: 'a@example.com',
+      username: 'a',
+      role: 'STAFF',
+      loyaltyPoints: 25,
+    });
   });
 
   it('login: sai mật khẩu hoặc không có user thì 401 và không ký token', async () => {
