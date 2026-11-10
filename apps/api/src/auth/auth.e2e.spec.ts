@@ -141,6 +141,7 @@ describe('Auth API (FR-04, NFR-02)', () => {
         email: 'hieu@example.com',
         username: 'Hiếu',
         role: 'CUSTOMER',
+        loyaltyPoints: 0,
       });
       expect(JSON.stringify(res.body)).not.toMatch(/password|hash/i);
     });
@@ -275,11 +276,19 @@ describe('Auth API (FR-04, NFR-02)', () => {
       expect(res.body.timestamp).toEqual(expect.any(String));
     });
 
-    it('token hợp lệ trả 200 và đúng người dùng', async () => {
+    it('token hợp lệ trả 200, đúng người dùng và điểm mới nhất từ DB', async () => {
+      store.rows.get(userId)!.loyaltyPoints = 25;
+
       const res = await me(`Bearer ${token}`);
 
       expect(res.status).toBe(200);
-      expect(res.body).toEqual({ id: userId, email: 'hieu@example.com', role: 'CUSTOMER' });
+      expect(res.body).toEqual({
+        id: userId,
+        email: 'hieu@example.com',
+        username: 'hieu',
+        role: 'CUSTOMER',
+        loyaltyPoints: 25,
+      });
     });
 
     it.each([
