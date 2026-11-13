@@ -257,6 +257,8 @@ export function ProductDetail({ productId }: { productId: string }) {
     const { data, isPending, isError, error, refetch } = useQuery({
         queryKey: ['product', productId],
         queryFn: () => api.getProduct(productId),
+        staleTime: 0,
+        refetchOnWindowFocus: true,
         // Món không tồn tại (404/400) thì thử lại cũng vô ích.
         retry: (failureCount, err) =>
             !(err instanceof ApiError && (err.status === 404 || err.status === 400)) && failureCount < 1,

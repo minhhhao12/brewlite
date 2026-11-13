@@ -1,3 +1,4 @@
+
 import { Prisma } from '@prisma/client';
 import { toProductResponse, type ProductWithOptions } from './product-response';
 
@@ -19,7 +20,12 @@ function product(
       productId: 'p1',
       ingredientId: `i${index}`,
       quantityPerServing: line.perServing,
-      ingredient: { ingredientId: `i${index}`, name: line.name, unit: 'g', stock: line.stock },
+      ingredient: {
+        ingredientId: `i${index}`,
+        name: line.name,
+        unit: 'g',
+        stock: line.stock,
+      },
     })),
   } as unknown as ProductWithOptions;
 }
@@ -32,13 +38,13 @@ describe('toProductResponse: món ngừng bán khi thiếu nguyên liệu', () =
   });
 
   it('đủ nguyên liệu: số bán được bị chặn bởi nguyên liệu cạn nhất', () => {
-    // matcha 100g/5g = 20 phần, sữa 3000ml/150ml = 20 phần, tồn kho món 30 => 20
     const res = toProductResponse(
       product(30, [
         { name: 'Bột matcha', stock: 100, perServing: 5 },
         { name: 'Sữa tươi', stock: 3000, perServing: 150 },
       ]),
     );
+
     expect(res.stock).toBe(20);
     expect(res.missingIngredients).toEqual([]);
   });
@@ -50,14 +56,59 @@ describe('toProductResponse: món ngừng bán khi thiếu nguyên liệu', () =
         { name: 'Sữa tươi', stock: 3000, perServing: 150 },
       ]),
     );
+
     expect(res.stock).toBe(0);
     expect(res.missingIngredients).toEqual(['Bột matcha']);
   });
 
-  it('nguyên liệu dồi dào thì tồn kho món vẫn là giới hạn', () => {
+  it('món có công thức không bị chặn bởi Product.stock', () => {
     const res = toProductResponse(
-      product(3, [{ name: 'Sữa tươi', stock: 99999, perServing: 150 }]),
+      product(3, [
+        { name: 'Sữa tươi', stock: 99999, perServing: 150 },
+      ]),
     );
-    expect(res.stock).toBe(3);
+
+    expect(res.stock).toBe(666);
+  });
+
+  it('Product.stock bằng 0 vẫn bán được nếu đủ nguyên liệu', () => {
+    const res = toProductResponse(
+      product(0, [
+        { name: 'Sữa tươi', stock: 600, perServing: 150 },
+      ]),
+    );
+
+    expect(res.stock).toBe(4);
+    expect(res.missingIngredients).toEqual([]);
+  });
+
+  it('số ly giảm sau khi trừ nguyên liệu dù Product.stock không đổi', () => {
+    const before = toProductResponse(
+      product(50, [
+        { name: 'Cà phê', stock: 2000, perServing: 20 },
+        { name: 'Sữa đặc', stock: 3000, perServing: 30 },
+      ]),
+    );
+    const after = toProductResponse(
+      product(50, [
+        { name: 'Cà phê', stock: 1980, perServing: 20 },
+        { name: 'Sữa đặc', stock: 2970, perServing: 30 },
+      ]),
+    );
+
+    expect(before.stock).toBe(100);
+    expect(after.stock).toBe(99);
+  });
+
+  it('nguyên liệu nhập thêm làm tăng số ly mà không cần sửa Product.stock', () => {
+    const before = toProductResponse(
+      product(1, [{ name: 'Sữa tươi', stock: 150, perServing: 150 }]),
+    );
+    const after = toProductResponse(
+      product(1, [{ name: 'Sữa tươi', stock: 600, perServing: 150 }]),
+    );
+
+    expect(before.stock).toBe(1);
+    expect(after.stock).toBe(4);
   });
 });

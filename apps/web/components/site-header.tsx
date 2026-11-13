@@ -50,18 +50,26 @@ export function SiteHeader() {
           {/* Authentication */}
           {authHydrated && user ? (
             <div className="flex items-center gap-2">
-              <span className="hidden text-xs font-semibold text-coffee-800 md:inline-block">
+            {/* User information */}
+            <div className="hidden items-center gap-2 md:flex">
+              <span className="text-xs font-semibold text-coffee-800">
                 {user.username || user.email.split('@')[0]}
               </span>
 
-              <button
-                type="button"
-                onClick={() => clearAuth()}
-                className="rounded-full px-2.5 py-1.5 text-xs text-coffee-600 transition hover:bg-coffee-100 hover:text-coffee-900"
-              >
-                Đăng xuất
-              </button>
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                <span aria-hidden="true">⭐</span>
+                {(user.loyaltyPoints ?? 0).toLocaleString('vi-VN')} điểm
+              </span>
             </div>
+
+            <button
+              type="button"
+              onClick={() => clearAuth()}
+              className="rounded-full px-2.5 py-1.5 text-xs text-coffee-600 transition hover:bg-coffee-100 hover:text-coffee-900"
+            >
+              Đăng xuất
+            </button>
+          </div>
           ) : authHydrated ? (
             <Link
               href="/login"

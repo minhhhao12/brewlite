@@ -1,3 +1,4 @@
+
 export type OptionType = 'SIZE' | 'TOPPING';
 
 export type ProductOption = {
@@ -14,14 +15,24 @@ export type Product = {
   description: string;
   price: number;
   imageUrl: string;
-  /** Số phần bán được thực tế (đã tính cả nguyên liệu). */
+  /** Số phần bán được thực tế, đã tính cả nguyên liệu. */
   stock: number;
-  /** Nguyên liệu đang thiếu khiến món không bán được (rỗng nếu không thiếu). */
+  /** Nguyên liệu đang thiếu khiến món không bán được. */
   missingIngredients?: string[];
   status: 'ACTIVE' | 'HIDDEN';
   options: ProductOption[];
 };
 
+/** Dữ liệu lựa chọn được lưu trong localStorage. */
+export type CartSelection = {
+  key: string;
+  productId: string;
+  sizeOptionId: string | null;
+  toppingOptionIds: string[];
+  quantity: number;
+};
+
+/** Dữ liệu giỏ hàng đã được đối chiếu với Product API. */
 export type CartItem = {
   key: string;
   productId: string;
@@ -31,6 +42,14 @@ export type CartItem = {
   toppings: ProductOption[];
   quantity: number;
   unitPrice: number;
+
+  // ID lựa chọn gốc, kể cả khi option không còn tồn tại.
+  sizeOptionId: string | null;
+  toppingOptionIds: string[];
+
+  // Trạng thái sản phẩm và option sau khi đối chiếu API.
+  productAvailable: boolean;
+  missingOptionIds: string[];
 };
 
 export type UserRole = 'CUSTOMER' | 'STAFF';
@@ -78,6 +97,10 @@ export type Order = {
   totalAmount: number | string;
   status: string;
   createdAt: string;
+  paymentDeadline?: string | null;
+  cancelReason?: 'CUSTOMER' | 'STAFF' | 'SYSTEM_EXPIRED' | null;
+  cancelledAt?: string | null;
+  cancelledBy?: string | null;
   items?: OrderItem[];
 };
 
@@ -100,3 +123,5 @@ export type PaymentResponse = {
   orderStatus: string;
   reused: boolean;
 };
+
+

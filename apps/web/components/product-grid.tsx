@@ -21,6 +21,8 @@ export function ProductGrid() {
   const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ['products'],
     queryFn: api.getProducts,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   });
 
   if (isPending) {
@@ -36,15 +38,15 @@ export function ProductGrid() {
   if (isError) {
     return (
       <div className="mt-8 rounded-3xl border border-red-200 bg-red-50 p-8 text-center">
-        <p className="text-sm font-semibold text-red-700">Không tải được menu</p>
+        <p className="text-sm font-semibold text-red-700">
+          Không tải được menu
+        </p>
         <p className="mt-2 text-sm text-red-600">
           {error instanceof Error ? error.message : 'Vui lòng thử lại sau.'}
         </p>
         <button
           type="button"
-          onClick={() => {
-            void refetch();
-          }}
+          onClick={() => void refetch()}
           className="mt-5 rounded-full bg-coffee-800 px-5 py-2.5 text-sm font-semibold text-cream transition hover:bg-coffee-700"
         >
           Thử lại
@@ -53,7 +55,11 @@ export function ProductGrid() {
     );
   }
 
-  if (!data || data.length === 0) {
+  const activeProducts = (data ?? []).filter(
+    (product) => product.status === 'ACTIVE',
+  );
+
+  if (activeProducts.length === 0) {
     return (
       <div className="mt-8 rounded-3xl border border-dashed border-coffee-200 bg-white/60 p-10 text-center">
         <p className="text-lg font-semibold">Menu đang được cập nhật</p>
@@ -66,7 +72,7 @@ export function ProductGrid() {
 
   return (
     <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-      {data.map((product) => (
+      {activeProducts.map((product) => (
         <ProductCard key={product.id} product={product} />
       ))}
     </div>

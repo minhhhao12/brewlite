@@ -148,6 +148,7 @@ async function seedProducts(): Promise<void> {
   let sequence = 1;
 
   for (const product of PRODUCTS) {
+    // Chỉ khởi tạo stock khi tạo mới; không thay đổi kho khi seed lại.
     // Product dùng productId làm khóa chính, không phải id.
     await prisma.product.upsert({
       where: {
@@ -158,7 +159,6 @@ async function seedProducts(): Promise<void> {
         description: product.description,
         basePrice: product.basePrice,
         imageUrl: product.imageUrl,
-        stock: product.stock,
         status: 'ACTIVE',
       },
       create: {
@@ -217,12 +217,13 @@ const INGREDIENTS: SeedIngredient[] = [
   { id: '33333333-3333-4333-8333-000000000011', name: 'Chanh dây', unit: 'quả', stock: 60 },
   { id: '33333333-3333-4333-8333-000000000012', name: 'Kem cheese', unit: 'g', stock: 2000 },
   { id: '33333333-3333-4333-8333-000000000013', name: 'Sữa chua', unit: 'ml', stock: 4000 },
+  { id: '33333333-3333-4333-8333-000000000014', name: 'Thạch trái cây', unit: 'g', stock: 3000 },
 ];
 
 const ING = (n: number): string => INGREDIENTS[n - 1].id;
 const PROD = (n: number): string => `11111111-1111-4111-8111-${String(n).padStart(12, '0')}`;
 
-/** Công thức: lượng nguyên liệu cho 1 ly (khớp đơn vị của nguyên liệu). */
+/** Công thức cho 1 ly size S, không topping (khớp đơn vị của nguyên liệu). */
 const RECIPES: Array<{ productId: string; ingredientId: string; quantityPerServing: number }> = [
   // Cà phê sữa đá
   { productId: PROD(1), ingredientId: ING(1), quantityPerServing: 20 },
@@ -269,8 +270,8 @@ async function seedIngredients(): Promise<void> {
   for (const ingredient of INGREDIENTS) {
     await prisma.ingredient.upsert({
       where: { ingredientId: ingredient.id },
-      // Chạy lại seed đưa kho nguyên liệu về mức mẫu (giống Product.stock).
-      update: { name: ingredient.name, unit: ingredient.unit, stock: ingredient.stock },
+      // Chạy lại seed không nạp đầy kho đã tiêu thụ.
+      update: { name: ingredient.name, unit: ingredient.unit },
       create: {
         ingredientId: ingredient.id,
         name: ingredient.name,
@@ -291,6 +292,54 @@ async function seedIngredients(): Promise<void> {
       update: { quantityPerServing: recipe.quantityPerServing },
       create: recipe,
     });
+  }
+}
+
+async function seedOptionIngredients(): Promise<void> {
+  // Size S dùng công thức gốc; M thêm 25%, L thêm 50%.
+  const sizeExtras: Record<string, number> = { S: 0, M: 0.25, L: 0.5 };
+  const toppings: Record<string, { ingredientId: string; quantityDelta: number }> = {
+    'Trân châu': { ingredientId: ING(6), quantityDelta: 30 },
+    'Thạch trái cây': { ingredientId: ING(14), quantityDelta: 30 },
+    'Kem cheese': { ingredientId: ING(12), quantityDelta: 20 },
+  };
+
+  for (const product of PRODUCTS) {
+    const recipe = RECIPES.filter((line) => line.productId === product.id);
+    const options = await prisma.productOption.findMany({
+      where: {
+        productId: product.id,
+        name: { in: [...SIZES, ...TOPPINGS].map((option) => option.name) },
+      },
+      select: { optionId: true, name: true, type: true },
+    });
+
+    for (const option of options) {
+      const extra = sizeExtras[option.name];
+      const topping = toppings[option.name];
+      const effects =
+        option.type === 'SIZE' && extra > 0
+          ? recipe.map((line) => ({
+              ingredientId: line.ingredientId,
+              quantityDelta: Number((line.quantityPerServing * extra).toFixed(3)),
+            }))
+          : option.type === 'TOPPING' && topping
+            ? [topping]
+            : [];
+
+      for (const effect of effects) {
+        await prisma.productOptionIngredient.upsert({
+          where: {
+            optionId_ingredientId: {
+              optionId: option.optionId,
+              ingredientId: effect.ingredientId,
+            },
+          },
+          update: { quantityDelta: effect.quantityDelta },
+          create: { optionId: option.optionId, ...effect },
+        });
+      }
+    }
   }
 }
 
@@ -324,6 +373,7 @@ async function seedPromotions(): Promise<void> {
 async function main(): Promise<void> {
   await seedProducts();
   await seedIngredients();
+  await seedOptionIngredients();
   await seedPromotions();
   await seedPaymentTestData();
 

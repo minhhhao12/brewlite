@@ -45,3 +45,10 @@ Chọn phương án **1**:
 - Controller không gọi Prisma; service sở hữu transaction.
 - Chỉ gọi service public của module khác; không import repository chéo.
 - Review dependency và test state machine/policy độc lập.
+
+## Trạng thái hiện thực (cập nhật 2026-11-09, CV14)
+
+- **Trạng thái**: Đã hiện thực – có điều chỉnh nhỏ
+- **Đúng thiết kế**: modular monolith NestJS theo domain trong `apps/api/src/`: `auth`, `products`, `orders`, `payments`, `promotions`, `loyalty`, `health`, `prisma`, `config`, `common`. Logic thuần nằm ở `domain/` (`orders/domain/order-state-machine.ts`, `promotions/domain/promotion-policy.ts`, `loyalty/domain/loyalty-policy.ts`) và có unit test `.spec.ts` đi kèm.
+- **Khác thiết kế**: không có `UsersModule` riêng (`User` do `AuthModule`/Prisma quản lý); không có `RolesGuard` (kiểm tra `UserRole.STAFF` trực tiếp trong controller/service); chưa có `AuditModule` (Extended, ngoài MVP).
+- **Quyết định vẫn giữ nguyên**.

@@ -1,19 +1,31 @@
-import { BadRequestException, Body, Controller, Headers, Post } from '@nestjs/common';
+
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Headers,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
+import type { AuthenticatedUser } from '../auth/auth.types';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreatePaymentDto } from './dto/create-payments.dto';
 import { PaymentsService } from './payments.service';
 
 const MAX_IDEMPOTENCY_KEY_LENGTH = 64;
 
 @Controller('payments')
+@UseGuards(JwtAuthGuard)
 export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 
   /**
-   * FR-06: khóa chống trừ tiền trùng lấy từ header `Idempotency-Key`.
-   * Gửi lại cùng khóa cho cùng đơn thì trả kết quả đã lưu, không tạo thanh toán mới.
+   * FR-06: Tạo thanh toán cho đơn hàng của người dùng hiện tại.
    */
   @Post()
   create(
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreatePaymentDto,
     @Headers('idempotency-key') idempotencyHeader?: string,
   ) {
@@ -21,12 +33,15 @@ export class PaymentsController {
       idempotencyHeader,
       dto.idempotencyKey,
     );
-    return this.paymentsService.create({ ...dto, idempotencyKey });
+
+    return this.paymentsService.create(user.userId, {
+      ...dto,
+      idempotencyKey,
+    });
   }
 
   /**
-   * Header là nguồn chính. Trường `idempotencyKey` trong body vẫn được chấp nhận
-   * để không làm hỏng client cũ, nhưng nếu gửi cả hai thì phải trùng nhau.
+   * Header là nguồn chính. Body vẫn được hỗ trợ để tương thích client cũ.
    */
   private static resolveIdempotencyKey(
     header: string | undefined,
@@ -42,14 +57,17 @@ export class PaymentsController {
     }
 
     const key = fromHeader || fromBody;
+
     if (!key) {
       throw new BadRequestException('Thiếu header Idempotency-Key.');
     }
+
     if (key.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
       throw new BadRequestException(
         `Idempotency-Key tối đa ${MAX_IDEMPOTENCY_KEY_LENGTH} ký tự.`,
       );
     }
+
     return key;
   }
 }

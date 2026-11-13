@@ -7,7 +7,9 @@ import type {
   PaymentResponse,
   Product,
   ProductOption,
+  User,
 } from './types';
+
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
 
 export class ApiError extends Error {
@@ -19,6 +21,7 @@ export class ApiError extends Error {
     this.name = 'ApiError';
   }
 }
+
 type RawOption = {
   id: string;
   name: string;
@@ -38,28 +41,66 @@ type RawProduct = {
   missingIngredients?: string[];
   status?: 'ACTIVE' | 'HIDDEN';
   options?:
-    | ProductOption[]
+    | RawOption[]
     | {
         sizes?: RawOption[];
         toppings?: RawOption[];
       };
 };
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers: Record<string, string> = {
-    Accept: 'application/json',
-  };
+function normalizeOptions(
+  options: RawProduct['options'],
+): ProductOption[] {
+  if (!options) return [];
 
-  // Tự động gắn JWT Token vào Authorization header nếu đã đăng nhập (CV11 requirement)
-  const token = getStoredToken();
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+  const list = Array.isArray(options)
+    ? options
+    : [...(options.sizes ?? []), ...(options.toppings ?? [])];
+
+  return list.map((option) => ({
+    id: option.id,
+    name: option.name,
+    type: option.type,
+    priceAdjustment: Number(option.priceAdjustment),
+    isAvailable: option.isAvailable,
+  }));
+}
+
+function normalizeProduct(raw: RawProduct): Product {
+  if (!raw.status || !['ACTIVE', 'HIDDEN'].includes(raw.status)) {
+    throw new ApiError(
+      `Sản phẩm "${raw.name}" không có trạng thái hợp lệ.`,
+      502,
+    );
   }
 
-  // Ghi đè hoặc bổ sung headers từ init
-  if (init?.headers) {
-    const customHeaders = init.headers as Record<string, string>;
-    Object.assign(headers, customHeaders);
+  return {
+    id: raw.id,
+    name: raw.name,
+    description: raw.description ?? '',
+    price: Number(raw.price ?? raw.basePrice ?? 0),
+    imageUrl: raw.imageUrl ?? '',
+    stock: Number(raw.stock ?? 0),
+    missingIngredients: raw.missingIngredients ?? [],
+    status: raw.status,
+    options: normalizeOptions(raw.options),
+  };
+}
+
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  const headers = new Headers(init?.headers);
+
+  if (!headers.has('Accept')) {
+    headers.set('Accept', 'application/json');
+  }
+
+  const token = getStoredToken();
+
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
   }
 
   const response = await fetch(`${API_URL}${path}`, {
@@ -70,16 +111,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     let message = `API trả về lỗi ${response.status}.`;
+
     try {
-      const body = (await response.json()) as { message?: string | string[] };
+      const body = (await response.json()) as {
+        message?: string | string[];
+      };
+
       if (Array.isArray(body.message)) {
         message = body.message.join(', ');
       } else if (body.message) {
         message = body.message;
       }
     } catch {
-      // Response lỗi không phải JSON – giữ message mặc định.
+      // Giữ message mặc định nếu response không phải JSON.
     }
+
     throw new ApiError(message, response.status);
   }
 
@@ -87,89 +133,53 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  // Products
   getProducts: async (): Promise<Product[]> => {
     const list = await request<RawProduct[]>('/products');
-    return list.map((raw) => {
-      let optionsList: ProductOption[] = [];
-      if (Array.isArray(raw.options)) {
-        optionsList = raw.options;
-      } else if (raw.options && typeof raw.options === 'object') {
-        const sizes = (raw.options.sizes ?? []).map((s) => ({
-          ...s,
-          priceAdjustment: Number(s.priceAdjustment),
-        }));
-        const toppings = (raw.options.toppings ?? []).map((t) => ({
-          ...t,
-          priceAdjustment: Number(t.priceAdjustment),
-        }));
-        optionsList = [...sizes, ...toppings];
-      }
-
-      return {
-        id: raw.id,
-        name: raw.name,
-        description: raw.description ?? '',
-        price: Number(raw.price ?? raw.basePrice ?? 0),
-        imageUrl: raw.imageUrl ?? '',
-        stock: raw.stock ?? 0,
-        missingIngredients: raw.missingIngredients ?? [],
-        status: raw.status ?? 'ACTIVE',
-        options: optionsList,
-      };
-    });
+    return list.map(normalizeProduct);
   },
 
   getProduct: async (id: string): Promise<Product> => {
-    const raw = await request<RawProduct>(`/products/${encodeURIComponent(id)}`);
-    let optionsList: ProductOption[] = [];
-    if (Array.isArray(raw.options)) {
-      optionsList = raw.options;
-    } else if (raw.options && typeof raw.options === 'object') {
-      const sizes = (raw.options.sizes ?? []).map((s) => ({
-        ...s,
-        priceAdjustment: Number(s.priceAdjustment),
-      }));
-      const toppings = (raw.options.toppings ?? []).map((t) => ({
-        ...t,
-        priceAdjustment: Number(t.priceAdjustment),
-      }));
-      optionsList = [...sizes, ...toppings];
-    }
+    const raw = await request<RawProduct>(
+      `/products/${encodeURIComponent(id)}`,
+    );
 
-    return {
-      id: raw.id,
-      name: raw.name,
-      description: raw.description ?? '',
-      price: Number(raw.price ?? raw.basePrice ?? 0),
-      imageUrl: raw.imageUrl ?? '',
-      stock: raw.stock ?? 0,
-      missingIngredients: raw.missingIngredients ?? [],
-      status: raw.status ?? 'ACTIVE',
-      options: optionsList,
-    };
+    return normalizeProduct(raw);
   },
 
-  // Xác thực người dùng (CV11 / CV08)
-  login: (email: string, password: string): Promise<AuthResponse> =>
+  // Authentication
+  login: (
+    email: string,
+    password: string,
+  ): Promise<AuthResponse> =>
     request<AuthResponse>('/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     }),
 
-  register: async (email: string, password: string, username?: string): Promise<AuthResponse> => {
-    await request<{ id: string; email: string; username: string; role: string }>('/auth/register', {
+  register: async (
+    email: string,
+    password: string,
+    username?: string,
+  ): Promise<AuthResponse> => {
+    await request('/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password, username }),
     });
+
     return api.login(email, password);
   },
 
-  // API Đơn hàng cần Token (CV11 / CV16)
-  getMyOrders: (): Promise<Order[]> => request<Order[]>('/orders/me'),
+  getMe: (): Promise<User> => request<User>('/auth/me'),
 
-  getOrderById: (id: string): Promise<Order> => request<Order>(`/orders/${encodeURIComponent(id)}`),
+  // Orders
+  getMyOrders: (): Promise<Order[]> =>
+    request<Order[]>('/orders/me'),
+
+  getOrderById: (id: string): Promise<Order> =>
+    request<Order>(`/orders/${encodeURIComponent(id)}`),
 
   cancelOrder: (id: string): Promise<Order> =>
     request<Order>(`/orders/${encodeURIComponent(id)}/cancel`, {
@@ -191,7 +201,7 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  // API Thanh toán đơn hàng có Idempotency-Key 
+  // Payments
   createPayment: (
     payload: {
       orderId: string;
@@ -214,7 +224,7 @@ export const api = {
       }),
     }),
 
-  // Kiểm tra mã khuyến mãi và tính trước giảm giá (CV21)
+  // Promotions
   validatePromotion: (
     code: string,
     subtotal: number,

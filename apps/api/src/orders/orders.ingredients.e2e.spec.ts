@@ -29,7 +29,16 @@ type FakeIngredient = { ingredientId: string; name: string; unit: string; stock:
 type FakeRecipe = { productId: string; ingredientId: string; quantityPerServing: number };
 type FakeUsage = { orderId: string; ingredientId: string; quantity: number };
 
+type FakeProductStockUsage = {
+  orderId: string;
+  productId: string;
+  quantity: number;
+};
+
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+/** Prisma có thể truyền number, string hoặc Prisma.Decimal: luôn ép về number để tránh nối chuỗi. */
+const num = (value: unknown): number => Number(value);
 
 /**
  * DB giả trong bộ nhớ, mô phỏng 3 hành vi mà tính năng nguyên liệu dựa vào:
@@ -43,6 +52,7 @@ class FakePrismaIngredients {
   recipes: FakeRecipe[] = [];
   usages: FakeUsage[] = [];
   orders: any[] = [];
+  productStockUsages: FakeProductStockUsage[] = [];
   private barrier: { waiting: Array<() => void>; size: number } | null = null;
 
   holdRecipeReadsUntil(size: number): void {
@@ -63,20 +73,16 @@ class FakePrismaIngredients {
             .filter(Boolean)
             .map((p) => ({ ...p! }));
         },
-        updateMany: async ({
-          where,
-          data,
-        }: {
-          where: { productId: string; version?: number; stock?: { gte?: number } };
-          data: { stock?: { decrement?: number }; version?: { increment?: number } };
-        }) => {
+        updateMany: async ({ where, data }: any) => {
           await tick();
           const p = this.products.get(where.productId);
           if (!p) return { count: 0 };
           if (where.version !== undefined && p.version !== where.version) return { count: 0 };
-          if (where.stock?.gte !== undefined && p.stock < where.stock.gte) return { count: 0 };
-          const stockDelta = data.stock?.decrement ?? 0;
-          const versionDelta = data.version?.increment ?? 0;
+          if (where.stock?.gte !== undefined && p.stock < num(where.stock.gte)) {
+            return { count: 0 };
+          }
+          const stockDelta = num(data.stock?.decrement ?? 0);
+          const versionDelta = num(data.version?.increment ?? 0);
           p.stock -= stockDelta;
           p.version += versionDelta;
           undo.push(() => {
@@ -90,17 +96,11 @@ class FakePrismaIngredients {
           const p = this.products.get(where.productId);
           return p ? { ...p } : null;
         },
-        update: async ({
-          where,
-          data,
-        }: {
-          where: { productId: string };
-          data: { stock?: { increment?: number }; version?: { increment?: number } };
-        }) => {
+        update: async ({ where, data }: any) => {
           await tick();
           const p = productRow(where.productId);
-          const stockDelta = data.stock?.increment ?? 0;
-          const versionDelta = data.version?.increment ?? 0;
+          const stockDelta = num(data.stock?.increment ?? 0);
+          const versionDelta = num(data.version?.increment ?? 0);
           p.stock += stockDelta;
           p.version += versionDelta;
           undo.push(() => {
@@ -131,20 +131,17 @@ class FakePrismaIngredients {
       },
 
       ingredient: {
-        updateMany: async ({
-          where,
-          data,
-        }: {
-          where: { ingredientId: string; stock?: { gte?: number } };
-          data: { stock: { decrement: number } };
-        }) => {
+        updateMany: async ({ where, data }: any) => {
           await tick();
           const ing = this.ingredients.get(where.ingredientId);
           if (!ing) return { count: 0 };
-          if (where.stock?.gte !== undefined && ing.stock < where.stock.gte) return { count: 0 };
-          ing.stock -= data.stock.decrement;
+          const dec = num(data.stock.decrement);
+          if (where.stock?.gte !== undefined && ing.stock < num(where.stock.gte)) {
+            return { count: 0 };
+          }
+          ing.stock -= dec;
           undo.push(() => {
-            ingredientRow(where.ingredientId).stock += data.stock.decrement;
+            ingredientRow(where.ingredientId).stock += dec;
           });
           return { count: 1 };
         },
@@ -153,36 +150,46 @@ class FakePrismaIngredients {
           const ing = this.ingredients.get(where.ingredientId);
           return ing ? { ...ing } : null;
         },
-        update: async ({
-          where,
-          data,
-        }: {
-          where: { ingredientId: string };
-          data: { stock: { increment: number } };
-        }) => {
+        update: async ({ where, data }: any) => {
           await tick();
           const ing = ingredientRow(where.ingredientId);
-          ing.stock += data.stock.increment;
+          const inc = num(data.stock.increment);
+          ing.stock += inc;
           undo.push(() => {
-            ing.stock -= data.stock.increment;
+            ing.stock -= inc;
           });
           return { ...ing };
         },
       },
 
       orderIngredientUsage: {
-        createMany: async ({ data }: { data: FakeUsage[] }) => {
-          const rows = data.map((d) => ({ ...d }));
+        createMany: async ({ data }: { data: any[] }) => {
+          const rows = data.map((d) => ({ ...d, quantity: num(d.quantity) }));
           this.usages.push(...rows);
           undo.push(() => {
-            this.usages = this.usages.filter((u) => !rows.includes(u));
+            this.usages = this.usages.filter((usage) => !rows.includes(usage));
           });
           return { count: rows.length };
         },
         findMany: async ({ where }: { where: { orderId: string } }) =>
-          this.usages
-            .filter((u) => u.orderId === where.orderId)
-            .sort((a, b) => a.ingredientId.localeCompare(b.ingredientId)),
+          this.usages.filter((usage) => usage.orderId === where.orderId),
+      },
+
+      orderProductStockUsage: {
+        createMany: async ({ data }: { data: any[] }) => {
+          const rows = data.map((d) => ({ ...d, quantity: num(d.quantity) }));
+          this.productStockUsages.push(...rows);
+          undo.push(() => {
+            this.productStockUsages = this.productStockUsages.filter(
+              (usage) => !rows.includes(usage),
+            );
+          });
+          return { count: rows.length };
+        },
+        findMany: async ({ where }: { where: { orderId: string } }) =>
+          this.productStockUsages
+            .filter((usage) => usage.orderId === where.orderId)
+            .sort((a, b) => a.productId.localeCompare(b.productId)),
       },
 
       order: {
@@ -204,11 +211,21 @@ class FakePrismaIngredients {
           });
           return row;
         },
+
         findFirst: async ({ where }: { where: { orderId: string } }) => {
           await tick();
           const row = this.orders.find((o) => o.orderId === where.orderId);
-          return row ? { ...row, items: row.items } : null;
+          if (!row) return null;
+          return {
+            ...row,
+            items: row.items,
+            productStockUsages: this.productStockUsages.filter(
+              (usage) => usage.orderId === where.orderId,
+            ),
+            ingredientUsages: this.usages.filter((usage) => usage.orderId === where.orderId),
+          };
         },
+
         updateMany: async ({
           where,
           data,
@@ -226,9 +243,17 @@ class FakePrismaIngredients {
           });
           return { count: 1 };
         },
+
         findUniqueOrThrow: async ({ where }: { where: { orderId: string } }) => {
           const row = this.orders.find((o) => o.orderId === where.orderId)!;
-          return { ...row, promotion: null };
+          return {
+            ...row,
+            promotion: null,
+            productStockUsages: this.productStockUsages.filter(
+              (usage) => usage.orderId === where.orderId,
+            ),
+            ingredientUsages: this.usages.filter((usage) => usage.orderId === where.orderId),
+          };
         },
       },
 
@@ -238,6 +263,7 @@ class FakePrismaIngredients {
 
   $transaction = async <T>(
     callback: (tx: ReturnType<FakePrismaIngredients['client']>) => Promise<T>,
+    _options?: unknown,
   ) => {
     const undo: Array<() => void> = [];
     try {
@@ -340,7 +366,8 @@ describe('Nguyên liệu ràng buộc món: hết nguyên liệu thì không bá
 
     expect(db.ingredients.get(milk.ingredientId)!.stock).toBe(700); // 1000 - 2*150
     expect(db.ingredients.get(matcha.ingredientId)!.stock).toBe(90); // 100 - 2*5
-    expect(db.products.get(latte.productId)!.stock).toBe(98);
+    // Món có công thức: tồn kho do nguyên liệu quản lý, không trừ Product.stock
+    expect(db.products.get(latte.productId)!.stock).toBe(100);
   });
 
   it('một nguyên liệu không đủ thì từ chối cả đơn và không trừ gì (rollback)', async () => {
@@ -432,8 +459,8 @@ describe('Nguyên liệu ràng buộc món: hết nguyên liệu thì không bá
     }
     expect(db.ingredients.get(milk.ingredientId)!.stock).toBe(0); // không âm
     expect(db.orders).toHaveLength(2);
-    // Đơn bị từ chối không làm mất tồn kho món
-    expect(db.products.get(latte.productId)!.stock).toBe(98);
+    // Món có công thức không trừ Product.stock; đơn bị từ chối cũng không làm đổi gì
+    expect(db.products.get(latte.productId)!.stock).toBe(100);
   });
 
   it('hủy đơn hoàn đúng lượng nguyên liệu đã trừ, kể cả khi công thức bị sửa sau khi đặt', async () => {

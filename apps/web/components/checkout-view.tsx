@@ -1,13 +1,20 @@
+
 'use client';
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth-store';
-import { selectCartSubtotal, useCartHydrated, useCartStore } from '@/lib/cart-store';
+import {
+  calculateCartSubtotal,
+  resolveCartItems,
+  useCartHydrated,
+  useCartStore,
+} from '@/lib/cart-store';
 import { createIdempotencyKey, isPaymentPaid } from '@/lib/payment';
-import type { PaymentMethod } from '@/lib/types';
+import type { CartItem, PaymentMethod, Product } from '@/lib/types';
 import { CardFormPanel, validateCard, type CardErrors } from './checkout/card-form-panel';
 import { OrderSummary } from './checkout/order-summary';
 import { PaymentMethods } from './checkout/payment-methods';
@@ -30,9 +37,11 @@ function getCancelErrorMessage(error: unknown): string {
     if (error.status === 403) {
       return 'Đơn hàng đã được thanh toán hoặc đang xử lý nên không thể hủy.';
     }
+
     if (error.status === 404) {
       return 'Không tìm thấy đơn hàng.';
     }
+
     return error.message || 'Không thể hủy đơn hàng.';
   }
 
@@ -41,6 +50,41 @@ function getCancelErrorMessage(error: unknown): string {
   }
 
   return 'Không thể kết nối đến máy chủ. Vui lòng thử lại.';
+}
+
+function getItemIssue(
+  item: CartItem,
+  product: Product | undefined,
+): string | null {
+  if (!product || !item.productAvailable) {
+    return 'Sản phẩm không còn được bán. Vui lòng xóa món này khỏi giỏ hàng.';
+  }
+
+  if (product.stock <= 0) {
+    const missing = product.missingIngredients ?? [];
+
+    return missing.length > 0
+      ? `Món hiện không đủ nguyên liệu: ${missing.join(', ')}.`
+      : 'Món hiện đã hết hàng.';
+  }
+
+  if (item.quantity > product.stock) {
+    return `Chỉ còn ${product.stock} phần. Vui lòng điều chỉnh số lượng.`;
+  }
+
+  if (item.missingOptionIds.length > 0) {
+    const optionMap = new Map(
+      product.options.map((option) => [option.id, option]),
+    );
+
+    const unavailableNames = item.missingOptionIds.map(
+      (id) => optionMap.get(id)?.name ?? 'Tùy chọn đã bị xóa',
+    );
+
+    return `Tùy chọn ${unavailableNames.join(', ')} hiện không còn khả dụng.`;
+  }
+
+  return null;
 }
 
 function CheckoutSkeleton() {
@@ -75,10 +119,15 @@ function EmptyCheckout() {
             />
           </svg>
         </div>
-        <h2 className="mt-4 text-xl font-bold text-coffee-900">Giỏ hàng của bạn đang trống</h2>
+
+        <h2 className="mt-4 text-xl font-bold text-coffee-900">
+          Giỏ hàng của bạn đang trống
+        </h2>
+
         <p className="mt-2 text-sm text-coffee-600">
           Không có đồ uống nào cần thanh toán. Hãy chọn món từ thực đơn.
         </p>
+
         <Link
           href="/"
           className="mt-6 inline-block w-full rounded-full bg-coffee-800 py-3 text-sm font-semibold text-cream transition hover:bg-coffee-700"
@@ -92,16 +141,56 @@ function EmptyCheckout() {
 
 export function CheckoutView() {
   const router = useRouter();
+  const queryClient = useQueryClient();
 
+  const updateUser = useAuthStore((state) => state.updateUser);
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
   const authHydrated = useAuthStore((state) => state.hasHydrated);
   const clearAuth = useAuthStore((state) => state.clearAuth);
 
-  const items = useCartStore((state) => state.items);
-  const subtotal = useCartStore(selectCartSubtotal);
+  // Dữ liệu trong Zustand chỉ chứa ID lựa chọn và số lượng.
+  const selections = useCartStore((state) => state.items);
   const clearCart = useCartStore((state) => state.clear);
   const cartHydrated = useCartHydrated();
+
+  const [products, setProducts] = useState<Product[] | null>(null);
+  const [isLoadingProducts, setIsLoadingProducts] = useState(true);
+  const [productError, setProductError] = useState<string | null>(null);
+
+  // Resolve dữ liệu giỏ hàng bằng Product API.
+  const items = useMemo(
+    () => (products ? resolveCartItems(selections, products) : []),
+    [selections, products],
+  );
+
+  const subtotal = useMemo(
+    () => calculateCartSubtotal(items),
+    [items],
+  );
+
+  const productMap = useMemo(
+    () => new Map((products ?? []).map((product) => [product.id, product])),
+    [products],
+  );
+
+  const itemIssues = useMemo(() => {
+    const issues = new Map<string, string>();
+
+    if (!products) return issues;
+
+    for (const item of items) {
+      const issue = getItemIssue(item, productMap.get(item.productId));
+
+      if (issue) {
+        issues.set(item.key, issue);
+      }
+    }
+
+    return issues;
+  }, [items, products, productMap]);
+
+  const hasInvalidItems = itemIssues.size > 0;
 
   const [method, setMethod] = useState<PaymentMethod>('WALLET');
   const [walletVerified, setWalletVerified] = useState(false);
@@ -129,14 +218,56 @@ export function CheckoutView() {
 
   const discountAmount = appliedPromo?.discountAmount ?? 0;
   const finalTotal = Math.max(0, subtotal - discountAmount);
+
   const submitHint =
     method === 'WALLET' && !walletVerified
       ? 'Bấm "Kiểm tra giao dịch" sau khi quét mã QR để mở khóa nút thanh toán.'
       : undefined;
 
+  const hasProductValidationError =
+    isLoadingProducts || products === null || Boolean(productError) || hasInvalidItems;
+
+  useEffect(() => {
+    if (!cartHydrated) return;
+
+    let cancelled = false;
+
+    const loadProducts = async () => {
+      setIsLoadingProducts(true);
+      setProductError(null);
+
+      try {
+        const latestProducts = await api.getProducts();
+
+        if (cancelled) return;
+
+        setProducts(latestProducts);
+      } catch (error) {
+        if (cancelled) return;
+
+        setProductError(
+          error instanceof Error
+            ? error.message
+            : 'Không thể kiểm tra tình trạng sản phẩm.',
+        );
+      } finally {
+        if (!cancelled) {
+          setIsLoadingProducts(false);
+        }
+      }
+    };
+
+    void loadProducts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cartHydrated]);
+
   useEffect(() => {
     const cleanCode = promoCode.trim().toUpperCase();
-    if (!cleanCode) {
+
+    if (!cleanCode || products === null) {
       setAppliedPromo(null);
       setPromoError(null);
       setIsValidatingPromo(false);
@@ -144,11 +275,16 @@ export function CheckoutView() {
     }
 
     setIsValidatingPromo(true);
+
     const timer = window.setTimeout(async () => {
       try {
         const response = await api.validatePromotion(cleanCode, subtotal);
+
         if (response.valid) {
-          setAppliedPromo({ code: response.code, discountAmount: response.discountAmount });
+          setAppliedPromo({
+            code: response.code,
+            discountAmount: response.discountAmount,
+          });
           setPromoError(null);
         } else {
           setAppliedPromo(null);
@@ -163,7 +299,7 @@ export function CheckoutView() {
     }, 350);
 
     return () => window.clearTimeout(timer);
-  }, [promoCode, subtotal]);
+  }, [promoCode, subtotal, products]);
 
   useEffect(() => {
     if (!token && authHydrated) {
@@ -191,9 +327,42 @@ export function CheckoutView() {
     setCardErrors({});
   };
 
+  const refreshProductStock = () => {
+    // Nguyên liệu dùng chung có thể làm thay đổi tồn kho của nhiều món.
+    void queryClient.invalidateQueries({ queryKey: ['products'] });
+    void queryClient.invalidateQueries({ queryKey: ['product'] });
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
     if (isSubmitting) return;
+
+    // Chỉ kiểm tra Product API khi cần tạo đơn mới.
+    // Nếu đã có pendingOrder, tiếp tục thanh toán đơn hiện tại.
+    if (!pendingOrder) {
+      if (isLoadingProducts || !products) {
+        setFormError('Đang kiểm tra sản phẩm. Vui lòng thử lại sau.');
+        return;
+      }
+
+      if (productError) {
+        setFormError('Không thể kiểm tra tình trạng sản phẩm. Vui lòng thử lại.');
+        return;
+      }
+
+      if (hasInvalidItems) {
+        setFormError(
+          'Một số sản phẩm không còn khả dụng hoặc đã thay đổi tình trạng. Vui lòng quay lại giỏ hàng để điều chỉnh.',
+        );
+        return;
+      }
+
+      if (items.length === 0) {
+        setFormError('Giỏ hàng đang trống.');
+        return;
+      }
+    }
 
     if (method === 'WALLET' && !walletVerified) {
       setFormError('Vui lòng bấm "Kiểm tra giao dịch" sau khi quét mã QR.');
@@ -203,6 +372,7 @@ export function CheckoutView() {
     if (method === 'CARD') {
       const errors = validateCard(cardInfo);
       setCardErrors(errors);
+
       if (Object.keys(errors).length > 0) {
         setFormError('Vui lòng kiểm tra lại thông tin thẻ.');
         return;
@@ -217,21 +387,31 @@ export function CheckoutView() {
 
       if (!activeOrder) {
         const createdOrder = await api.createOrder({
-          items: items.map((item) => ({
+          items: selections.map((item) => ({
             productId: item.productId,
             quantity: item.quantity,
-            sizeOptionId: item.size?.id,
-            toppingOptionIds: item.toppings.map((topping) => topping.id),
+            sizeOptionId: item.sizeOptionId ?? undefined,
+            toppingOptionIds: item.toppingOptionIds,
           })),
-          promoCode: appliedPromo?.code || (promoCode.trim() ? promoCode.trim() : undefined),
+          promoCode:
+            appliedPromo?.code ||
+            (promoCode.trim() ? promoCode.trim() : undefined),
         });
 
-        activeOrder = { id: createdOrder.id, code: createdOrder.orderCode };
+        activeOrder = {
+          id: createdOrder.id,
+          code: createdOrder.orderCode,
+        };
+
         setPendingOrder(activeOrder);
       }
 
       const paymentResponse = await api.createPayment(
-        { orderId: activeOrder.id, method, simulateFailure },
+        {
+          orderId: activeOrder.id,
+          method,
+          simulateFailure,
+        },
         createIdempotencyKey(),
       );
 
@@ -239,7 +419,22 @@ export function CheckoutView() {
 
       if (isPaymentPaid(paymentResponse)) {
         clearCart();
-        setResult({ status: 'SUCCESS', orderCode: activeOrder.code, amount, method });
+
+        try {
+          const latestUser = await api.getMe();
+          updateUser(latestUser);
+        } catch {
+          // Không ảnh hưởng kết quả thanh toán.
+          // Điểm sẽ được đồng bộ lại ở lần tải dữ liệu tiếp theo.
+        }
+
+        setResult({
+          status: 'SUCCESS',
+          orderCode: activeOrder.code,
+          amount,
+          method,
+        });
+
         return;
       }
 
@@ -259,10 +454,14 @@ export function CheckoutView() {
           setFormError(error.message || 'Thanh toán không thành công.');
         }
       } else {
-        setFormError('Không thể kết nối đến máy chủ. Vui lòng kiểm tra mạng và thử lại.');
+        setFormError(
+          'Không thể kết nối đến máy chủ. Vui lòng kiểm tra mạng và thử lại.',
+        );
       }
     } finally {
       setIsSubmitting(false);
+      // Tạo đơn đã giữ nguyên liệu, kể cả khi thanh toán thất bại.
+      refreshProductStock();
     }
   };
 
@@ -285,6 +484,7 @@ export function CheckoutView() {
       throw new Error('Đơn hàng chưa được hủy. Vui lòng tải lại trang.');
     }
 
+    refreshProductStock();
     return pendingOrder.code;
   };
 
@@ -296,6 +496,7 @@ export function CheckoutView() {
 
     try {
       const orderCode = await cancelOrderAndGetCode();
+
       setPendingOrder(null);
       setWalletVerified(false);
       setResult({ status: 'CANCELLED', orderCode });
@@ -305,6 +506,7 @@ export function CheckoutView() {
         router.replace('/login?redirect=/checkout');
         return;
       }
+
       setCancelError(getCancelErrorMessage(error));
     } finally {
       setIsCancelling(false);
@@ -319,6 +521,7 @@ export function CheckoutView() {
 
     try {
       await cancelOrderAndGetCode();
+
       setPendingOrder(null);
       setWalletVerified(false);
       setCardErrors({});
@@ -329,6 +532,7 @@ export function CheckoutView() {
         router.replace('/login?redirect=/checkout');
         return;
       }
+
       setFormError(getCancelErrorMessage(error));
     } finally {
       setIsCancelling(false);
@@ -358,7 +562,7 @@ export function CheckoutView() {
     );
   }
 
-  if (items.length === 0) {
+  if (selections.length === 0) {
     return <EmptyCheckout />;
   }
 
@@ -383,10 +587,13 @@ export function CheckoutView() {
             <span aria-hidden="true">←</span> Quay lại giỏ hàng
           </Link>
         )}
+
         <div className="flex items-center gap-2 text-xs font-semibold text-coffee-500">
           <span className="text-coffee-400">1. Giỏ hàng</span>
           <span>›</span>
-          <span className="rounded-full bg-coffee-800 px-3 py-1 text-cream">2. Thanh toán</span>
+          <span className="rounded-full bg-coffee-800 px-3 py-1 text-cream">
+            2. Thanh toán
+          </span>
           <span>›</span>
           <span className="text-coffee-400">3. Hoàn tất</span>
         </div>
@@ -401,17 +608,74 @@ export function CheckoutView() {
         </p>
       </div>
 
+      {isLoadingProducts && (
+        <div
+          role="status"
+          className="mb-6 rounded-2xl border border-coffee-200 bg-coffee-50 p-4 text-sm text-coffee-700"
+        >
+          Đang tải thông tin sản phẩm và kiểm tra giá...
+        </div>
+      )}
+
+      {productError && (
+        <div
+          role="alert"
+          className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"
+        >
+          Không thể tải thông tin sản phẩm: {productError}
+          <p className="mt-1">
+            Vui lòng tải lại trang trước khi tiếp tục thanh toán.
+          </p>
+        </div>
+      )}
+
+      {hasInvalidItems && !pendingOrder && (
+        <div
+          role="alert"
+          className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
+        >
+          <p className="font-semibold">
+            Một số sản phẩm không còn khả dụng.
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {items.map((item) => {
+              const issue = itemIssues.get(item.key);
+
+              return issue ? (
+                <li key={item.key}>
+                  <span className="font-medium">{item.productName}:</span>{' '}
+                  {issue}
+                </li>
+              ) : null;
+            })}
+          </ul>
+          <Link
+            href="/cart"
+            className="mt-3 inline-block font-semibold underline"
+          >
+            Quay lại giỏ hàng để điều chỉnh
+          </Link>
+        </div>
+      )}
+
       {formError && (
         <div
           role="alert"
           className="mb-8 rounded-3xl border border-rose-200 bg-rose-50/90 p-5 shadow-sm"
         >
-          <h2 className="text-sm font-bold text-rose-900">Không thể hoàn tất</h2>
-          <p className="mt-1 text-sm leading-relaxed text-rose-700">{formError}</p>
+          <h2 className="text-sm font-bold text-rose-900">
+            Không thể hoàn tất
+          </h2>
+          <p className="mt-1 text-sm leading-relaxed text-rose-700">
+            {formError}
+          </p>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="grid gap-8 lg:grid-cols-12 lg:items-start">
+      <form
+        onSubmit={handleSubmit}
+        className="grid gap-8 lg:grid-cols-12 lg:items-start"
+      >
         <div className="space-y-6 lg:col-span-7 xl:col-span-8">
           <section className="rounded-3xl border border-coffee-100 bg-white/95 p-6 shadow-card">
             <h2 className="flex items-center gap-2 text-base font-semibold text-coffee-900">
@@ -436,8 +700,12 @@ export function CheckoutView() {
               </div>
 
               <div className="rounded-2xl border border-coffee-100 bg-cream/30 p-3.5">
-                <span className="text-xs text-coffee-500">Hình thức phục vụ</span>
-                <p className="mt-0.5 font-semibold text-coffee-900">Nhận tại quầy</p>
+                <span className="text-xs text-coffee-500">
+                  Hình thức phục vụ
+                </span>
+                <p className="mt-0.5 font-semibold text-coffee-900">
+                  Nhận tại quầy
+                </p>
                 <p className="text-xs font-medium text-emerald-700">
                   Pha chế ngay sau khi thanh toán
                 </p>
@@ -469,7 +737,11 @@ export function CheckoutView() {
             )}
 
             {method === 'CARD' && (
-              <CardFormPanel value={cardInfo} errors={cardErrors} onChange={handleCardChange} />
+              <CardFormPanel
+                value={cardInfo}
+                errors={cardErrors}
+                onChange={handleCardChange}
+              />
             )}
 
             <div className="mt-6 rounded-2xl border border-dashed border-coffee-200 bg-cream/40 p-4">
@@ -503,7 +775,10 @@ export function CheckoutView() {
           promoError={promoError}
           isValidatingPromo={isValidatingPromo}
           isSubmitting={isSubmitting}
-          isSubmitDisabled={method === 'WALLET' && !walletVerified}
+          isSubmitDisabled={
+            (!pendingOrder && hasProductValidationError) ||
+            (method === 'WALLET' && !walletVerified)
+          }
           submitHint={submitHint}
           isOrderCreated={Boolean(pendingOrder)}
           onPromoCodeChange={setPromoCode}

@@ -23,9 +23,14 @@ export class AuthController {
   }
 
   /** Route mẫu có guard: dùng để kiểm tra token. Các route đặt đơn/thanh toán sẽ dùng chung JwtAuthGuard. */
+  // @Get('me')
+  // @UseGuards(JwtAuthGuard)
+  // me(@CurrentUser() user: AuthenticatedUser): { id: string; email: string; role: string } {
+  //   return { id: user.userId, email: user.email, role: user.role };
+
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  me(@CurrentUser() user: AuthenticatedUser): { id: string; email: string; role: string } {
-    return { id: user.userId, email: user.email, role: user.role };
+  me(@CurrentUser() user: AuthenticatedUser): Promise<PublicUser> {
+    return this.authService.getMe(user.userId);
   }
 }
