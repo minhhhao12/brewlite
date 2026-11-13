@@ -5,14 +5,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-
-import { 
-  OptionType, 
-  OrderStatus, 
-  Prisma, 
-  UserRole 
+import { ConfigService } from '@nestjs/config';
+import {
+  CancelReason,
+  OptionType,
+  OrderStatus,
+  Prisma,
+  UserRole,
 } from '@prisma/client';
-
 import {
   aggregateRequirements,
   type IngredientRequirement,
@@ -30,11 +30,54 @@ import { CreateOrderDto } from './dto/create-order.dto';
 
 @Injectable()
 export class OrdersService {
+  /** Thời gian mặc định chờ thanh toán: 15 phút (tính theo Order.createdAt). */
+  private static readonly DEFAULT_PAYMENT_TIMEOUT_SECONDS = 900;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly promotionsService: PromotionsService,
     private readonly loyaltyService: LoyaltyService,
+    private readonly config: ConfigService,
   ) {}
+
+  /** Đọc timeout thanh toán (giây) từ config; sai/thiếu thì dùng mặc định. */
+  private getPaymentTimeoutMs(): number {
+    const configured = Number(
+      this.config.get<string | number>(
+        'ORDER_PAYMENT_TIMEOUT_SECONDS',
+        OrdersService.DEFAULT_PAYMENT_TIMEOUT_SECONDS,
+      ),
+    );
+    const seconds =
+      Number.isFinite(configured) && configured > 0
+        ? configured
+        : OrdersService.DEFAULT_PAYMENT_TIMEOUT_SECONDS;
+    return seconds * 1000;
+  }
+
+  /** Deadline thanh toán của một đơn, luôn tính từ createdAt (không reset khi thử lại). */
+  private getPaymentDeadline(createdAt: Date): Date {
+    return new Date(createdAt.getTime() + this.getPaymentTimeoutMs());
+  }
+
+  private isAwaitingPayment(status: OrderStatus): boolean {
+    return (
+      status === OrderStatus.PENDING || status === OrderStatus.PAYMENT_FAILED
+    );
+  }
+
+  private isPaymentExpired(
+    order: { status: OrderStatus; createdAt?: Date | null },
+    now: Date = new Date(),
+  ): boolean {
+    if (!order.createdAt || !this.isAwaitingPayment(order.status)) {
+      return false;
+    }
+    return (
+      this.getPaymentDeadline(new Date(order.createdAt)).getTime() <=
+      now.getTime()
+    );
+  }
 
   // Chuyển Order từ Prisma sang response chuẩn cho client.
   public mapOrderResponse(order: any) {
@@ -51,7 +94,12 @@ export class OrdersService {
 
       status: order.status,
       createdAt: order.createdAt,
-
+      paymentDeadline: order.createdAt
+        ? this.getPaymentDeadline(new Date(order.createdAt))
+        : null,
+      cancelReason: order.cancelReason ?? null,
+      cancelledAt: order.cancelledAt ?? null,
+      cancelledBy: order.cancelledBy ?? null,
       items: (order.items ?? []).map((item: any) => ({
         id: item.orderItemId,
         orderItemId: item.orderItemId,
@@ -713,8 +761,122 @@ export class OrdersService {
     }
   }
 
+  // Hoàn Product.stock theo snapshot, không theo toàn bộ món trong đơn.
+  private async restoreOrderStock(
+    tx: Prisma.TransactionClient,
+    usages: Array<{ productId: string; quantity: number }>,
+  ): Promise<void> {
+    for (const usage of usages) {
+      await tx.product.update({
+        where: {
+          productId: usage.productId,
+        },
+        data: {
+          stock: {
+            increment: usage.quantity,
+          },
+          version: {
+            increment: 1,
+          },
+        },
+      });
+    }
+  }
+
+  /**
+   * Lazy expiry: hủy một đơn đã quá hạn thanh toán ngay trong transaction hiện tại.
+   * Dùng updateMany có điều kiện status + createdAt nên chỉ một request thắng;
+   * request thua nhận count = 0 và không hoàn kho/nguyên liệu lần hai.
+   */
+  private async expireOrderRecord(
+    tx: Prisma.TransactionClient,
+    order: {
+      orderId: string;
+      status: OrderStatus;
+      createdAt: Date;
+      productStockUsages: Array<{ productId: string; quantity: number }>;
+    },
+    now: Date,
+  ): Promise<boolean> {
+    if (!this.isPaymentExpired(order, now)) {
+      return false;
+    }
+
+    const cutoff = new Date(now.getTime() - this.getPaymentTimeoutMs());
+    const locked = await tx.order.updateMany({
+      where: {
+        orderId: order.orderId,
+        status: { in: [OrderStatus.PENDING, OrderStatus.PAYMENT_FAILED] },
+        createdAt: { lte: cutoff },
+      },
+      data: {
+        status: OrderStatus.CANCELLED,
+        cancelReason: CancelReason.SYSTEM_EXPIRED,
+        cancelledAt: now,
+        cancelledBy: null,
+      },
+    });
+
+    if (locked.count === 0) {
+      return false;
+    }
+
+    await this.restoreOrderStock(tx, order.productStockUsages);
+    await this.restoreIngredients(tx, order.orderId);
+    return true;
+  }
+
+  /**
+   * Hủy đơn quá hạn thanh toán theo cơ chế lazy expiry.
+   * Trả true nếu request này là bên thắng và đã hoàn kho; false nếu đơn
+   * không quá hạn hoặc đã bị request khác xử lý trước.
+   */
+  async expireOrderIfNeeded(orderId: string): Promise<boolean> {
+    const now = new Date();
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.order.findFirst({
+        where: { orderId },
+        include: { productStockUsages: true },
+      });
+
+      if (!order) {
+        return false;
+      }
+
+      return this.expireOrderRecord(tx, order, now);
+    });
+  }
+
+  /**
+   * Quét các đơn chưa thanh toán đã quá hạn của một user (dùng cho GET /orders/me).
+   * Không dùng cron/scheduler: mỗi lần đọc danh sách sẽ dọn các đơn quá hạn.
+   */
+  async expireOverdueOrdersForUser(userId: string): Promise<number> {
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - this.getPaymentTimeoutMs());
+    const overdueOrders = await this.prisma.order.findMany({
+      where: {
+        userId,
+        status: { in: [OrderStatus.PENDING, OrderStatus.PAYMENT_FAILED] },
+        createdAt: { lte: cutoff },
+      },
+      select: { orderId: true },
+    });
+
+    let expiredCount = 0;
+    for (const order of overdueOrders) {
+      if (await this.expireOrderIfNeeded(order.orderId)) {
+        expiredCount += 1;
+      }
+    }
+    return expiredCount;
+  }
+
   // Xem lịch sử đơn hàng theo ID khách hàng.
   async getMyOrders(userId: string) {
+    // Lazy expiry: dọn các đơn quá hạn của user trước khi trả danh sách.
+    await this.expireOverdueOrdersForUser(userId);
+
     const orders = await this.prisma.order.findMany({
       where: {
         userId,
@@ -794,6 +956,32 @@ export class OrdersService {
       );
     }
 
+    // Lazy expiry: xem chi tiết cũng là điểm kích hoạt dọn đơn quá hạn.
+    if (this.isPaymentExpired(order)) {
+      const expired = await this.expireOrderIfNeeded(order.orderId);
+      if (expired) {
+        const refreshed = await this.prisma.order.findFirst({
+          where: { orderId: order.orderId },
+          include: {
+            items: {
+              include: {
+                options: true,
+                product: {
+                  select: {
+                    imageUrl: true,
+                  },
+                },
+              },
+            },
+            promotion: true,
+          },
+        });
+        if (refreshed) {
+          return this.mapOrderResponse(refreshed);
+        }
+      }
+    }
+
     return this.mapOrderResponse(order);
   }
 
@@ -849,6 +1037,10 @@ export class OrdersService {
           OrderStatus.CANCELLED,
         );
 
+        const cancelledAt = new Date();
+        const cancelReason =
+          role === UserRole.STAFF ? CancelReason.STAFF : CancelReason.CUSTOMER;
+
         // Chốt trạng thái nguyên tử.
         const locked = await tx.order.updateMany({
           where: {
@@ -857,6 +1049,9 @@ export class OrdersService {
           },
           data: {
             status: OrderStatus.CANCELLED,
+            cancelReason,
+            cancelledAt,
+            cancelledBy: userId,
           },
         });
 
@@ -867,21 +1062,7 @@ export class OrdersService {
         }
 
         // Hoàn Product.stock theo snapshot.
-        for (const usage of order.productStockUsages) {
-          await tx.product.update({
-            where: {
-              productId: usage.productId,
-            },
-            data: {
-              stock: {
-                increment: usage.quantity,
-              },
-              version: {
-                increment: 1,
-              },
-            },
-          });
-        }
+        await this.restoreOrderStock(tx, order.productStockUsages);
 
         // Hoàn Ingredient.stock theo snapshot.
         await this.restoreIngredients(
@@ -930,10 +1111,14 @@ export class OrdersService {
     orderId: string,
     nextStatus: OrderStatus,
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    const now = new Date();
+    const result = await this.prisma.$transaction(async (tx) => {
       const order = await tx.order.findFirst({
         where: {
           orderId,
+        },
+        include: {
+          productStockUsages: true,
         },
       });
 
@@ -943,12 +1128,18 @@ export class OrdersService {
         );
       }
 
+      // Không throw trong transaction để tránh rollback thao tác tự hủy.
+      if (this.isPaymentExpired(order, now)) {
+        await this.expireOrderRecord(tx, order, now);
+        return null;
+      }
+
       OrderStateMachine.assertTransition(
         order.status,
         nextStatus,
       );
 
-      const updated = await tx.order.update({
+      return tx.order.update({
         where: {
           orderId,
         },
@@ -969,8 +1160,14 @@ export class OrdersService {
           promotion: true,
         },
       });
-
-      return this.mapOrderResponse(updated);
     });
+
+    if (!result) {
+      throw new ConflictException(
+        'Đơn hàng đã quá hạn thanh toán và đã bị hủy tự động, không thể chuyển trạng thái.',
+      );
+    }
+
+    return this.mapOrderResponse(result);
   }
 }

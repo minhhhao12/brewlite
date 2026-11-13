@@ -6,15 +6,18 @@ Mỗi quyết định kiến trúc quan trọng được ghi thành một ADR ng
 
 | ADR | Quyết định | Trạng thái |
 | :--- | :--- | :--- |
-| [ADR-001](./001-monorepo.md) | Monorepo pnpm workspaces (`apps/web`, `apps/api`, `docs`) | Accepted – thiết kế Task 3 |
-| [ADR-002](./002-modular-monolith-nestjs.md) | Modular monolith NestJS theo domain, không microservices | Accepted – thiết kế Task 3 |
-| [ADR-003](./003-nextjs-pwa.md) | Next.js App Router + PWA manifest/service worker tự viết | Accepted – thiết kế Task 3 |
-| [ADR-004](./004-postgresql-prisma-migration.md) | PostgreSQL + Prisma Migrate, forward-only | Accepted – thiết kế Task 3 |
-| [ADR-005](./005-mock-payment-adapter.md) | `PaymentGateway` port + `MockPaymentGateway` adapter | Accepted – thiết kế Task 3 |
-| [ADR-006](./006-deployment-platform.md) | Render cho web/API/Postgres + GHCR | Accepted – kế hoạch, chưa tạo hạ tầng |
-| [ADR-007](./007-logging-health-config.md) | JSON logging, `/health`, `/health/ready`, validate env | Accepted – thiết kế Task 3 |
-| [ADR-008](./008-auth-jwt-bcrypt.md) | JWT + Bcrypt + Guard/Role | Accepted – thiết kế Task 3 |
-| [ADR-009](./009-frontend-state.md) | Zustand cho cart + fetch wrapper cho server state | Accepted – thiết kế Task 3 |
+| [ADR-001](./001-monorepo.md) | Monorepo pnpm workspaces (`apps/web`, `apps/api`, `docs`) | Accepted – đã hiện thực (Docker prod chưa có) |
+| [ADR-002](./002-modular-monolith-nestjs.md) | Modular monolith NestJS theo domain, không microservices | Accepted – đã hiện thực (không có UsersModule/RolesGuard) |
+| [ADR-003](./003-nextjs-pwa.md) | Next.js App Router + PWA manifest/service worker tự viết | Accepted – manifest đã có, service worker chưa |
+| [ADR-004](./004-postgresql-prisma-migration.md) | PostgreSQL + Prisma Migrate, forward-only | Accepted – đã hiện thực, khóa khác thiết kế (Serializable + optimistic) |
+| [ADR-005](./005-mock-payment-adapter.md) | `PaymentGateway` port + `MockPaymentGateway` adapter | Accepted – hiện thực rút gọn (chưa có port/adapter, job) |
+| [ADR-006](./006-deployment-platform.md) | Render cho web/API/Postgres + GHCR | Accepted – chưa hiện thực (chỉ CI) |
+| [ADR-007](./007-logging-health-config.md) | JSON logging, `/health`, `/health/ready`, validate env | Accepted – health + validate env đã có, logging JSON chưa |
+| [ADR-008](./008-auth-jwt-bcrypt.md) | JWT + Bcrypt + Guard/Role | Accepted – đã hiện thực (không RolesGuard, token ở localStorage) |
+| [ADR-009](./009-frontend-state.md) | Zustand cho cart + fetch wrapper cho server state | Accepted – đã hiện thực (thêm TanStack Query) |
+| [ADR-010](./010-vnpay-sandbox.md) | Tích hợp VNPay Sandbox (Return URL + IPN), giữ mock fallback | Proposed – kế hoạch triển khai |
+
+Cột **Trạng thái** phản ánh mức hiện thực trong mã nguồn tại 2026-11-09 (CV14); chi tiết ở mục "Trạng thái hiện thực" cuối mỗi ADR. Các quyết định **không bị sửa**; chỗ lệch được ghi nhận, nếu muốn đổi chính thức thì tạo ADR mới.
 
 ## Liên kết
 

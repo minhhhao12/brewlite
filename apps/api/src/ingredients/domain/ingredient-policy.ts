@@ -69,9 +69,11 @@ export function maxServings(
 
   return Math.min(
     ...recipe.map((line) => {
+      // Cùng độ chính xác 3 chữ số thập phân với DB và lúc trừ nguyên liệu.
+      const perServingMilli = Math.round(line.quantityPerServing * 1000);
       if (
         !Number.isFinite(line.quantityPerServing) ||
-        line.quantityPerServing <= 0 ||
+        perServingMilli <= 0 ||
         !Number.isFinite(line.stock)
       ) {
         throw new Error(
@@ -80,7 +82,7 @@ export function maxServings(
       }
 
       return Math.floor(
-        Math.max(0, line.stock) / line.quantityPerServing,
+        Math.round(Math.max(0, line.stock) * 1000) / perServingMilli,
       );
     }),
   );

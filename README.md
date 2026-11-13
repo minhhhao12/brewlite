@@ -198,6 +198,7 @@ Không có file `.env` thì Docker Compose dùng giá trị mặc định dướ
 | `CORS_ORIGIN` | `http://localhost:3001,http://127.0.0.1:3001` | Danh sách origin được gọi API, phân tách bằng dấu phẩy. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` hoặc `error`. |
 | `PAYMENT_PROVIDER` | `mock` | Hiện chỉ hỗ trợ `mock`; giá trị khác trả `503` khi thanh toán. |
+| `ORDER_PAYMENT_TIMEOUT_SECONDS` | `900` | Đơn `PENDING`/`PAYMENT_FAILED` quá số giây này (tính từ `createdAt`) bị lazy expiry hủy với lý do `SYSTEM_EXPIRED`. Đặt `30` để demo nhanh. |
 
 
 ### Web: `apps/web/.env.local` (chỉ khi chạy trên host)

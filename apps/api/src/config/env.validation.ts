@@ -24,6 +24,9 @@ export function validateEnv(config: Record<string, unknown>): Record<string, unk
     readString(config.CORS_ORIGIN) ?? 'http://localhost:3001,http://127.0.0.1:3001';
   const logLevel = readString(config.LOG_LEVEL) ?? 'info';
   const paymentProvider = readString(config.PAYMENT_PROVIDER) ?? 'mock';
+  const orderPaymentTimeoutSeconds = Number(
+    readString(config.ORDER_PAYMENT_TIMEOUT_SECONDS) ?? 900,
+  );
 
   const errors: string[] = [];
 
@@ -53,6 +56,13 @@ export function validateEnv(config: Record<string, unknown>): Record<string, unk
     errors.push(`LOG_LEVEL phải là một trong: ${LOG_LEVELS.join(', ')}.`);
   }
 
+  if (
+    !Number.isInteger(orderPaymentTimeoutSeconds) ||
+    orderPaymentTimeoutSeconds < 1
+  ) {
+    errors.push('ORDER_PAYMENT_TIMEOUT_SECONDS phải là số nguyên dương (giây).');
+  }
+
   if (errors.length > 0) {
     throw new Error(`Cấu hình môi trường không hợp lệ:\n- ${errors.join('\n- ')}`);
   }
@@ -66,5 +76,6 @@ export function validateEnv(config: Record<string, unknown>): Record<string, unk
     CORS_ORIGIN: corsOrigin,
     LOG_LEVEL: logLevel,
     PAYMENT_PROVIDER: paymentProvider,
+    ORDER_PAYMENT_TIMEOUT_SECONDS: orderPaymentTimeoutSeconds,
   };
 }

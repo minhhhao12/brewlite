@@ -4,8 +4,9 @@ import {
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
-import { OptionType, OrderStatus, Prisma, UserRole } from '@prisma/client';
+import { CancelReason, OptionType, OrderStatus, Prisma, UserRole } from '@prisma/client';
 import { LoyaltyService } from '../loyalty/loyalty.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PromotionsService } from '../promotions/promotions.service';
@@ -123,6 +124,10 @@ describe('OrdersService (FR-05, FR-08, FR-09, FR-10, NFR-05, CV21)', () => {
         PromotionsService,
         { provide: LoyaltyService, useValue: mockLoyaltyService },
         { provide: PrismaService, useValue: prisma },
+        {
+          provide: ConfigService,
+          useValue: { get: (_key: string, fallback?: unknown) => fallback },
+        },
       ],
     }).compile();
 
@@ -462,6 +467,64 @@ describe('OrdersService (FR-05, FR-08, FR-09, FR-10, NFR-05, CV21)', () => {
       });
     });
 
+    it('khách tự hủy -> lưu cancelReason CUSTOMER, cancelledAt và cancelledBy', async () => {
+      const pendingOrder = {
+        orderId: 'order-1',
+        userId: 'user-1',
+        status: OrderStatus.PENDING,
+        items: [],
+        productStockUsages: [],
+      };
+
+      prisma.order.findFirst.mockResolvedValue(pendingOrder);
+      prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      prisma.order.findUniqueOrThrow.mockResolvedValue({
+        ...pendingOrder,
+        status: OrderStatus.CANCELLED,
+      });
+
+      await service.cancelOrder('order-1', 'user-1', UserRole.CUSTOMER);
+
+      expect(prisma.order.updateMany).toHaveBeenCalledWith({
+        where: { orderId: 'order-1', status: OrderStatus.PENDING },
+        data: expect.objectContaining({
+          status: OrderStatus.CANCELLED,
+          cancelReason: CancelReason.CUSTOMER,
+          cancelledAt: expect.any(Date),
+          cancelledBy: 'user-1',
+        }),
+      });
+    });
+
+    it('nhân viên hủy -> lưu cancelReason STAFF và cancelledBy là id nhân viên', async () => {
+      const paidOrder = {
+        orderId: 'order-1',
+        userId: 'user-1',
+        status: OrderStatus.PAID,
+        items: [],
+        productStockUsages: [],
+      };
+
+      prisma.order.findFirst.mockResolvedValue(paidOrder);
+      prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      prisma.order.findUniqueOrThrow.mockResolvedValue({
+        ...paidOrder,
+        status: OrderStatus.CANCELLED,
+      });
+
+      await service.cancelOrder('order-1', 'staff-1', UserRole.STAFF);
+
+      expect(prisma.order.updateMany).toHaveBeenCalledWith({
+        where: { orderId: 'order-1', status: OrderStatus.PAID },
+        data: expect.objectContaining({
+          status: OrderStatus.CANCELLED,
+          cancelReason: CancelReason.STAFF,
+          cancelledAt: expect.any(Date),
+          cancelledBy: 'staff-1',
+        }),
+      });
+    });
+
     it('khách không được huỷ đơn đã thanh toán', async () => {
       prisma.order.findFirst.mockResolvedValue({
         orderId: 'order-1',
@@ -599,10 +662,308 @@ describe('OrdersService (FR-05, FR-08, FR-09, FR-10, NFR-05, CV21)', () => {
     });
   });
 
+  describe('lazy expiry (tự hủy đơn quá hạn thanh toán)', () => {
+    const overdueAt = () => new Date(Date.now() - 16 * 60 * 1000);
+    const recentAt = () => new Date(Date.now() - 60 * 1000);
+    const orderWith = (
+      status: OrderStatus,
+      createdAt: Date,
+      productStockUsages: Array<{ productId: string; quantity: number }> = [
+        { productId: 'prod-1', quantity: 2 },
+      ],
+    ) => ({
+      orderId: 'order-expire',
+      userId: 'user-1',
+      status,
+      createdAt,
+      items: [{ productId: 'prod-1', quantity: 2 }],
+      productStockUsages,
+    });
+
+    it('đơn PENDING quá hạn -> CANCELLED, hoàn kho + nguyên liệu', async () => {
+      prisma.order.findFirst.mockResolvedValue(orderWith(OrderStatus.PENDING, overdueAt()));
+      prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      prisma.orderIngredientUsage.findMany.mockResolvedValue([
+        { ingredientId: 'ing-1', quantity: 10 },
+      ]);
+
+      const expired = await service.expireOrderIfNeeded('order-expire');
+
+      expect(expired).toBe(true);
+      expect(prisma.order.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            orderId: 'order-expire',
+            status: {
+              in: [OrderStatus.PENDING, OrderStatus.PAYMENT_FAILED],
+            },
+            createdAt: { lte: expect.any(Date) },
+          },
+          data: expect.objectContaining({
+            status: OrderStatus.CANCELLED,
+            cancelReason: CancelReason.SYSTEM_EXPIRED,
+            cancelledAt: expect.any(Date),
+            cancelledBy: null,
+          }),
+        }),
+      );
+      expect(prisma.product.update).toHaveBeenCalledWith({
+        where: { productId: 'prod-1' },
+        data: { stock: { increment: 2 }, version: { increment: 1 } },
+      });
+      expect(prisma.ingredient.update).toHaveBeenCalledWith({
+        where: { ingredientId: 'ing-1' },
+        data: { stock: { increment: 10 } },
+      });
+    });
+
+    it('đơn PAYMENT_FAILED quá hạn -> CANCELLED', async () => {
+      prisma.order.findFirst.mockResolvedValue(
+        orderWith(OrderStatus.PAYMENT_FAILED, overdueAt()),
+      );
+      prisma.order.updateMany.mockResolvedValue({ count: 1 });
+
+      const expired = await service.expireOrderIfNeeded('order-expire');
+
+      expect(expired).toBe(true);
+      expect(prisma.order.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: OrderStatus.CANCELLED,
+            cancelReason: CancelReason.SYSTEM_EXPIRED,
+          }),
+        }),
+      );
+    });
+
+    it('món dùng nguyên liệu không được hoàn thêm Product.stock khi quá hạn', async () => {
+      prisma.order.findFirst.mockResolvedValue(
+        orderWith(OrderStatus.PENDING, overdueAt(), []),
+      );
+      prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      prisma.orderIngredientUsage.findMany.mockResolvedValue([
+        { ingredientId: 'ing-1', quantity: new Prisma.Decimal('12.500') },
+      ]);
+
+      expect(await service.expireOrderIfNeeded('order-expire')).toBe(true);
+      expect(prisma.product.update).not.toHaveBeenCalled();
+      expect(prisma.ingredient.update).toHaveBeenCalledWith({
+        where: { ingredientId: 'ing-1' },
+        data: { stock: { increment: new Prisma.Decimal('12.500') } },
+      });
+    });
+
+    it('đơn hỗn hợp quá hạn chỉ hoàn Product.stock theo snapshot đã trừ', async () => {
+      prisma.order.findFirst.mockResolvedValue({
+        ...orderWith(OrderStatus.PENDING, overdueAt(), [
+          { productId: 'prod-stock', quantity: 1 },
+        ]),
+        items: [
+          { productId: 'prod-recipe', quantity: 2 },
+          { productId: 'prod-stock', quantity: 3 },
+        ],
+      });
+      prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      prisma.orderIngredientUsage.findMany.mockResolvedValue([
+        { ingredientId: 'ing-1', quantity: 10 },
+      ]);
+
+      expect(await service.expireOrderIfNeeded('order-expire')).toBe(true);
+      expect(prisma.product.update).toHaveBeenCalledTimes(1);
+      expect(prisma.product.update).toHaveBeenCalledWith({
+        where: { productId: 'prod-stock' },
+        data: { stock: { increment: 1 }, version: { increment: 1 } },
+      });
+      expect(prisma.ingredient.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('request tự hủy thua chốt trạng thái không được hoàn kho/nguyên liệu', async () => {
+      prisma.order.findFirst.mockResolvedValue(
+        orderWith(OrderStatus.PENDING, overdueAt()),
+      );
+      prisma.order.updateMany.mockResolvedValue({ count: 0 });
+
+      expect(await service.expireOrderIfNeeded('order-expire')).toBe(false);
+      expect(prisma.product.update).not.toHaveBeenCalled();
+      expect(prisma.orderIngredientUsage.findMany).not.toHaveBeenCalled();
+      expect(prisma.ingredient.update).not.toHaveBeenCalled();
+    });
+
+    it('đổi trạng thái đơn quá hạn phải commit hủy trước khi trả 409', async () => {
+      prisma.order.findFirst.mockResolvedValue(
+        orderWith(OrderStatus.PENDING, overdueAt()),
+      );
+      prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      let committed = false;
+      prisma.$transaction.mockImplementation(async (callback) => {
+        const result = await callback(prisma);
+        committed = true;
+        return result;
+      });
+
+      await expect(
+        service.updateStatus('order-expire', OrderStatus.PREPARING),
+      ).rejects.toThrow(ConflictException);
+
+      expect(committed).toBe(true);
+      expect(prisma.product.update).toHaveBeenCalledTimes(1);
+      expect(prisma.order.update).not.toHaveBeenCalled();
+    });
+
+    it('đơn chưa quá hạn -> không đổi trạng thái, không hoàn kho', async () => {
+      prisma.order.findFirst.mockResolvedValue(orderWith(OrderStatus.PENDING, recentAt()));
+
+      const expired = await service.expireOrderIfNeeded('order-expire');
+
+      expect(expired).toBe(false);
+      expect(prisma.order.updateMany).not.toHaveBeenCalled();
+      expect(prisma.product.update).not.toHaveBeenCalled();
+    });
+
+    it.each([OrderStatus.PAID, OrderStatus.PREPARING])(
+      'đơn %s không bị hủy tự động dù createdAt cũ',
+      async (status) => {
+        prisma.order.findFirst.mockResolvedValue(orderWith(status, overdueAt()));
+
+        const expired = await service.expireOrderIfNeeded('order-expire');
+
+        expect(expired).toBe(false);
+        expect(prisma.order.updateMany).not.toHaveBeenCalled();
+        expect(prisma.product.update).not.toHaveBeenCalled();
+      },
+    );
+
+    it('gọi expire 2 lần chỉ hoàn kho/nguyên liệu đúng một lần', async () => {
+      let status: OrderStatus = OrderStatus.PENDING;
+      prisma.order.findFirst.mockImplementation(async () =>
+        orderWith(status, overdueAt()),
+      );
+      prisma.order.updateMany.mockImplementation(async () => {
+        if (status === OrderStatus.PENDING) {
+          status = OrderStatus.CANCELLED;
+          return { count: 1 };
+        }
+        return { count: 0 };
+      });
+      prisma.orderIngredientUsage.findMany.mockResolvedValue([
+        { ingredientId: 'ing-1', quantity: 5 },
+      ]);
+
+      const first = await service.expireOrderIfNeeded('order-expire');
+      const second = await service.expireOrderIfNeeded('order-expire');
+
+      expect(first).toBe(true);
+      expect(second).toBe(false);
+      expect(prisma.product.update).toHaveBeenCalledTimes(1);
+      expect(prisma.ingredient.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('race expireOrder vs cancelOrder: expire thắng thì cancelOrder nhận 409 và chỉ hoàn kho một lần', async () => {
+      let updateAttempts = 0;
+      prisma.order.findFirst.mockResolvedValue(orderWith(OrderStatus.PENDING, overdueAt()));
+      prisma.order.updateMany.mockImplementation(async () => {
+        updateAttempts += 1;
+        return updateAttempts === 1 ? { count: 1 } : { count: 0 };
+      });
+      prisma.order.findUniqueOrThrow.mockResolvedValue({
+        ...orderWith(OrderStatus.CANCELLED, overdueAt()),
+        items: [],
+      });
+
+      const expired = await service.expireOrderIfNeeded('order-expire');
+
+      await expect(
+        service.cancelOrder('order-expire', 'user-1', UserRole.CUSTOMER),
+      ).rejects.toThrow(ConflictException);
+
+      expect(expired).toBe(true);
+      expect(prisma.product.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('race cancelOrder vs expireOrder: cancelOrder thắng thì expire bỏ qua, không hoàn kho lần hai', async () => {
+      let updateAttempts = 0;
+      prisma.order.findFirst.mockResolvedValue(orderWith(OrderStatus.PENDING, overdueAt()));
+      prisma.order.updateMany.mockImplementation(async () => {
+        updateAttempts += 1;
+        return updateAttempts === 1 ? { count: 1 } : { count: 0 };
+      });
+      prisma.order.findUniqueOrThrow.mockResolvedValue({
+        ...orderWith(OrderStatus.CANCELLED, overdueAt()),
+        items: [],
+      });
+
+      const cancelled = await service.cancelOrder(
+        'order-expire',
+        'user-1',
+        UserRole.CUSTOMER,
+      );
+      const expired = await service.expireOrderIfNeeded('order-expire');
+
+      expect(cancelled.status).toBe(OrderStatus.CANCELLED);
+      expect(expired).toBe(false);
+      expect(prisma.product.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('GET /orders/:id sẽ hủy đơn quá hạn và trả CANCELLED', async () => {
+      const pending = {
+        ...orderWith(OrderStatus.PENDING, overdueAt()),
+        orderCode: 'BL-EXPIRE-1',
+        subtotal: new Prisma.Decimal(29000),
+        discountAmount: new Prisma.Decimal(0),
+        totalAmount: new Prisma.Decimal(29000),
+        promotion: null,
+      };
+      const cancelled = {
+        ...pending,
+        status: OrderStatus.CANCELLED,
+        cancelReason: CancelReason.SYSTEM_EXPIRED,
+      };
+      prisma.order.findFirst
+        .mockResolvedValueOnce(pending)
+        .mockResolvedValueOnce(pending)
+        .mockResolvedValueOnce(cancelled);
+      prisma.order.updateMany.mockResolvedValue({ count: 1 });
+
+      const result = await service.getOrderById(
+        'order-expire',
+        'user-1',
+        UserRole.CUSTOMER,
+      );
+
+      expect(result.status).toBe(OrderStatus.CANCELLED);
+      expect(prisma.order.updateMany).toHaveBeenCalledTimes(1);
+      expect(prisma.order.findFirst).toHaveBeenLastCalledWith({
+        where: { orderId: 'order-expire' },
+        include: {
+          items: {
+            include: { options: true, product: { select: { imageUrl: true } } },
+          },
+          promotion: true,
+        },
+      });
+    });
+
+    it('GET /orders/me quét và hủy các đơn quá hạn của user trước khi trả danh sách', async () => {
+      prisma.order.findMany
+        .mockResolvedValueOnce([{ orderId: 'order-expire' }])
+        .mockResolvedValueOnce([]);
+      prisma.order.findFirst.mockResolvedValue(
+        orderWith(OrderStatus.PENDING, overdueAt()),
+      );
+      prisma.order.updateMany.mockResolvedValue({ count: 1 });
+
+      const orders = await service.getMyOrders('user-1');
+
+      expect(orders).toEqual([]);
+      expect(prisma.order.updateMany).toHaveBeenCalledTimes(1);
+      expect(prisma.order.findMany).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('getMyOrders (FR-07, CV16)', () => {
     it('trả về danh sách đơn hàng của chính user với đầy đủ mã đơn, trạng thái, tổng, ngày, items', async () => {
-      const mockDate = new Date('2026-10-24T10:00:00Z');
-      prisma.order.findMany.mockResolvedValue([
+      const mockDate = new Date();
+      prisma.order.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([
         {
           orderId: 'order-1',
           orderCode: 'BL-20261024-0001',
@@ -672,7 +1033,7 @@ describe('OrdersService (FR-05, FR-08, FR-09, FR-10, NFR-05, CV21)', () => {
       discountAmount: new Prisma.Decimal(0),
       totalAmount: new Prisma.Decimal(35000),
       status: OrderStatus.PENDING,
-      createdAt: new Date('2026-10-24T12:00:00Z'),
+      createdAt: new Date(),
       items: [
         {
           orderItemId: 'item-uuid-1',

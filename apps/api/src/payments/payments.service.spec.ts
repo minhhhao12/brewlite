@@ -14,6 +14,7 @@ import {
 } from '@prisma/client';
 import { LoyaltyService } from '../loyalty/loyalty.service';
 import { OrderStateMachine } from '../orders/domain/order-state-machine';
+import { OrdersService } from '../orders/orders.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaymentsService } from './payments.service';
 
@@ -25,7 +26,9 @@ describe('PaymentsService + OrderStateMachine (FR-06, FR-08, FR-10)', () => {
     reversePoints: jest.Mock;
     getPoints: jest.Mock;
   };
-
+  let mockOrdersService: {
+    expireOrderIfNeeded: jest.Mock;
+  };
   let prisma: {
     $transaction: jest.Mock;
     order: {
@@ -67,6 +70,11 @@ describe('PaymentsService + OrderStateMachine (FR-06, FR-08, FR-10)', () => {
       getPoints: jest.fn(),
     };
 
+    mockOrdersService = {
+      // Mặc định đơn chưa quá hạn.
+      expireOrderIfNeeded: jest.fn().mockResolvedValue(false),
+    };
+
     prisma = {
       $transaction: jest.fn().mockImplementation(async (callback) =>
         callback(prisma),
@@ -90,6 +98,8 @@ describe('PaymentsService + OrderStateMachine (FR-06, FR-08, FR-10)', () => {
         PaymentsService,
         { provide: PrismaService, useValue: prisma },
         { provide: LoyaltyService, useValue: mockLoyaltyService },
+        { provide: OrdersService, useValue: mockOrdersService },
+        // Dùng giá trị mặc định: PAYMENT_PROVIDER = mock, NODE_ENV = development.
         {
           provide: ConfigService,
           useValue: {
@@ -391,5 +401,16 @@ describe('PaymentsService + OrderStateMachine (FR-06, FR-08, FR-10)', () => {
 
     expect(prisma.payment.create).not.toHaveBeenCalled();
     expect(mockLoyaltyService.earnPoints).not.toHaveBeenCalled();
+  });
+
+  it('POST /payments sau deadline: đơn bị hủy và trả 409, không tạo payment', async () => {
+    prisma.order.findFirst.mockResolvedValue(orderWith(OrderStatus.PENDING));
+    mockOrdersService.expireOrderIfNeeded.mockResolvedValue(true);
+
+    await expect(service.create(userId, dto)).rejects.toThrow(ConflictException);
+
+    expect(mockOrdersService.expireOrderIfNeeded).toHaveBeenCalledWith('order-1');
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
+    expect(prisma.payment.create).not.toHaveBeenCalled();
   });
 });

@@ -62,5 +62,8 @@ Bảng dưới đây nối yêu cầu Task 1 với quyết định kiến trúc/
 | NFR-02 | Bcrypt, JWT/Roles Guard, ValidationPipe, secret ngoài repo | ADR-007, ADR-008 | Render/GitHub Secrets |
 | NFR-03 | Next.js mobile-first, manifest, service worker | ADR-003, ADR-009 | User Device → Render Web (Next.js) |
 | NFR-04 | Docker, GitHub Actions, GHCR, Render, health/rollback | ADR-001, ADR-006, `deployment.md` | GitHub Actions → GHCR → Render |
-| NFR-05 | Transaction, `SELECT FOR UPDATE`, UNIQUE, state machine | ADR-004, ADR-005 | Render API → PostgreSQL |
+| NFR-05 | Transaction `Serializable` + optimistic locking (thiết kế gốc: `SELECT FOR UPDATE`), UNIQUE, state machine | ADR-004, ADR-005 | Render API → PostgreSQL |
 
+## 5. Truy vết thành phần → mã nguồn (CV13)
+
+Bảng đầy đủ (đường dẫn thực tế + trạng thái Đủ/Khác/Chưa cho từng thành phần) nằm ở [`architecture/architecture.md`](./architecture/architecture.md) §13.2. Trạng thái hiện thực của từng quyết định nằm ở cuối mỗi [ADR](./architecture/adr/README.md) (CV14).

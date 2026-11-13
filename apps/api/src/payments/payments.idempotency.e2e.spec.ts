@@ -19,6 +19,7 @@ type OrderRow = {
   userId: string;
   status: string;
   totalAmount: Prisma.Decimal;
+  createdAt: Date;
 };
 
 type UserRow = {
@@ -77,6 +78,7 @@ class FakePrisma {
       userId,
       status,
       totalAmount: new Prisma.Decimal(45000),
+      createdAt: new Date(),
     };
 
     this.orders.set(row.orderId, row);
@@ -92,13 +94,13 @@ class FakePrisma {
     findFirst: async ({
       where,
     }: {
-      where: { orderId: string; userId: string };
+      where: { orderId: string; userId?: string };
     }) => {
       await tick();
 
       const row = this.orders.get(where.orderId);
 
-      if (!row || row.userId !== where.userId) {
+      if (!row || (where.userId !== undefined && row.userId !== where.userId)) {
         return null;
       }
 

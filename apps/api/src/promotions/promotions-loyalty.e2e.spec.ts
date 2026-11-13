@@ -192,11 +192,11 @@ class FakePrismaCV21 {
     findFirst: async ({
       where,
     }: {
-      where: { orderId: string; userId: string };
+      where: { orderId: string; userId?: string };
     }) => {
       const order = this.orders.get(where.orderId);
 
-      if (!order || order.userId !== where.userId) {
+      if (!order || (where.userId !== undefined && order.userId !== where.userId)) {
         return null;
       }
 

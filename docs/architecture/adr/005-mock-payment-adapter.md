@@ -46,3 +46,11 @@ Chọn phương án **1**:
 - Xác thực callback bằng HMAC-SHA256 + timestamp + chống replay.
 - Không log dữ liệu nhạy cảm; secret ở dashboard.
 - Callback hợp lệ vẫn phải đi qua `assertTransition` của FR-08.
+
+## Trạng thái hiện thực (cập nhật 2026-11-09, CV14)
+
+- **Trạng thái**: Hiện thực một phần – đơn giản hơn thiết kế
+- **Đã có**: thanh toán mô phỏng trong `apps/api/src/payments/payments.service.ts`; chọn provider bằng biến `PAYMENT_PROVIDER` (mặc định `mock`, giá trị khác → `503`); `transactionReference` dạng `MOCK-<timestamp>-<random>`; cờ `simulateFailure` để demo thất bại (bị từ chối ở production); idempotency theo unique `(userId, orderId, idempotencyKey)` + xử lý race `P2002`/`409`; mọi chuyển trạng thái đơn đều qua `OrderStateMachine.assertTransition`.
+- **Chưa có**: interface `PaymentGateway`, class `MockPaymentGateway`, DI token, `PaymentReconciliationJob`, trạng thái `PROCESSING`/`EXPIRED` (enum hiện là `INITIATED`/`PAID`/`FAILED`), `verifyResult`/`verifyCallback`.
+- **Lý do chấp nhận lệch**: mock chạy tức thời, không có timeout "chưa xác minh" nên reservation + đối soát chưa cần; port/adapter chỉ thực sự cần khi tích hợp gateway thật.
+- **Việc cần làm nếu muốn khớp ADR**: tách `PaymentGateway` + `MockPaymentGateway` khỏi `PaymentsService`; hoặc ghi ADR mới "Payment mock tích hợp trong service" và đánh dấu ADR-005 Superseded.

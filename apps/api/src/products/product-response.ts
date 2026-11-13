@@ -24,7 +24,7 @@ export type ProductResponse = {
   description: string;
   price: number;
   imageUrl: string;
-  /** Số phần bán được thực tế = min(tồn kho món, số phần pha được theo nguyên liệu). */
+  /** Số ly theo công thức gốc; món không có công thức dùng Product.stock. */
   stock: number;
   /** Tên các nguyên liệu không đủ cho 1 phần. */
   missingIngredients: string[];
@@ -45,11 +45,7 @@ export function toRecipe(product: ProductWithOptions): RecipeLine[] {
 export function toProductResponse(product: ProductWithOptions): ProductResponse {
   const recipe = toRecipe(product);
   const productStock = Math.max(0, Number(product.stock));
-  const ingredientCapacity = effectiveStock(productStock, recipe);
-  const availableStock = Math.min(
-    productStock,
-    Math.max(0, ingredientCapacity),
-  );
+  const availableStock = Math.max(0, effectiveStock(productStock, recipe));
 
   return {
     id: product.productId,

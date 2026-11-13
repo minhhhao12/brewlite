@@ -3,6 +3,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth-store';
@@ -140,6 +141,7 @@ function EmptyCheckout() {
 
 export function CheckoutView() {
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const updateUser = useAuthStore((state) => state.updateUser);
   const token = useAuthStore((state) => state.token);
@@ -325,6 +327,12 @@ export function CheckoutView() {
     setCardErrors({});
   };
 
+  const refreshProductStock = () => {
+    // Nguyên liệu dùng chung có thể làm thay đổi tồn kho của nhiều món.
+    void queryClient.invalidateQueries({ queryKey: ['products'] });
+    void queryClient.invalidateQueries({ queryKey: ['product'] });
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -452,6 +460,8 @@ export function CheckoutView() {
       }
     } finally {
       setIsSubmitting(false);
+      // Tạo đơn đã giữ nguyên liệu, kể cả khi thanh toán thất bại.
+      refreshProductStock();
     }
   };
 
@@ -474,6 +484,7 @@ export function CheckoutView() {
       throw new Error('Đơn hàng chưa được hủy. Vui lòng tải lại trang.');
     }
 
+    refreshProductStock();
     return pendingOrder.code;
   };
 

@@ -120,6 +120,7 @@ Thiết kế phải đáp ứng NFR-04:
 | `PAYMENT_MOCK_DELAY_MS` | Độ trễ mô phỏng | Render Environment | Không |
 | `PAYMENT_MOCK_FAILURE_RATE` | Tỷ lệ lỗi 0..1 | Render Environment | Không |
 | `PAYMENT_MOCK_TIMEOUT_RATE` | Tỷ lệ timeout (nếu dùng) | Render Environment | Không |
+| `ORDER_PAYMENT_TIMEOUT_SECONDS` | Thời gian chờ thanh toán trước khi lazy expiry hủy đơn, mặc định `900` | Render Environment | Không |
 | `RUN_MIGRATIONS` | `true` để chạy `prisma migrate deploy` khi start | Render Environment | Không |
 | `GATEWAY_SECRET` | Chỉ dùng khi tích hợp gateway thật/webhook (Extended) | Render Secret | **Có** |
 

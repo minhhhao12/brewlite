@@ -41,6 +41,11 @@ describe('ingredient-policy', () => {
       expect(maxServings([milk(-5)])).toBe(0);
     });
 
+    it('không làm mất một phần do sai số chia số thập phân', () => {
+      expect(maxServings([milk(0.3, 0.1)])).toBe(3);
+      expect(maxServings([milk(0.299, 0.1)])).toBe(2);
+    });
+
     it('từ chối công thức có định lượng bằng 0', () => {
       expect(() => maxServings([milk(100, 0)])).toThrow(
         'Công thức nguyên liệu "Sữa tươi" không hợp lệ.',
@@ -174,6 +179,53 @@ describe('ingredient-policy', () => {
       );
 
       expect(result.find((r) => r.ingredientId === 'ing-matcha')?.need).toBe(14);
+    });
+
+    it('cùng món khác Size/Topping phải trừ đúng từng dòng rồi cộng nguyên liệu chung', () => {
+      const effects = new Map<string, OptionEffectLine[]>([
+        ['size-large', [{
+          optionId: 'size-large',
+          productId: 'p-matcha',
+          type: 'SIZE',
+          ingredientId: 'ing-milk',
+          name: 'Sữa tươi',
+          unit: 'ml',
+          quantityDelta: 75,
+        }, {
+          optionId: 'size-large',
+          productId: 'p-matcha',
+          type: 'SIZE',
+          ingredientId: 'ing-matcha',
+          name: 'Bột matcha',
+          unit: 'g',
+          quantityDelta: 2.5,
+        }]],
+        ['topping-cheese', [{
+          optionId: 'topping-cheese',
+          productId: 'p-matcha',
+          type: 'TOPPING',
+          ingredientId: 'ing-cheese',
+          name: 'Kem cheese',
+          unit: 'g',
+          quantityDelta: 20,
+        }]],
+      ]);
+
+      const result = aggregateRequirements([
+        { productId: 'p-matcha', quantity: 1 },
+        {
+          productId: 'p-matcha',
+          quantity: 2,
+          sizeOptionId: 'size-large',
+          toppingOptionIds: ['topping-cheese'],
+        },
+      ], recipes, effects);
+
+      expect(result).toEqual([
+        { ingredientId: 'ing-cheese', name: 'Kem cheese', unit: 'g', need: 40 },
+        { ingredientId: 'ing-matcha', name: 'Bột matcha', unit: 'g', need: 20 },
+        { ingredientId: 'ing-milk', name: 'Sữa tươi', unit: 'ml', need: 600 },
+      ]);
     });
 
     it('từ chối Size làm lượng tiêu thụ nguyên liệu bị âm', () => {

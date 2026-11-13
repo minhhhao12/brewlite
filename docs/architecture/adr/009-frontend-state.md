@@ -45,3 +45,10 @@ Chọn phương án **1**:
 - Server luôn tính lại giá/total; client không gửi total có thẩm quyền.
 - Không cache response API chứa dữ liệu cá nhân trong service worker.
 - Khi đổi `NEXT_PUBLIC_API_URL`, phải rebuild web vì biến được inline lúc build.
+
+## Trạng thái hiện thực (cập nhật 2026-11-09, CV14)
+
+- **Trạng thái**: Đã hiện thực – bổ sung React Query
+- **Đúng thiết kế**: `useCartStore` (Zustand + `persist` localStorage, tránh hydration mismatch) ở `apps/web/lib/cart-store.ts` có test `cart-store.test.ts`; `apps/web/lib/api.ts` là fetch wrapper (base URL `NEXT_PUBLIC_API_URL`, tự gắn `Authorization: Bearer`, lỗi `ApiError`); `Idempotency-Key` được gửi ở header thanh toán.
+- **Khác thiết kế**: ADR ghi "fetch + loading/error state, có thể bổ sung React Query sau" nhưng code **đã dùng TanStack Query** (`apps/web/app/providers.tsx`, dùng `useQuery` ở `product-grid.tsx`, `product-detail.tsx`); JWT lưu `localStorage` (xem ADR-008).
+- Quyết định vẫn hợp lý; chỉ cần cập nhật câu chữ khi sửa ADR.

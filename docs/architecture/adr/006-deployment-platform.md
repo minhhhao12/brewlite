@@ -52,3 +52,10 @@ Chọn phương án **1**:
 - Build `NEXT_PUBLIC_API_URL` trỏ tới API production **trước khi** build web image.
 - Chạy migration/seed lần đầu; smoke test `/health`; kiểm tra web qua HTTPS.
 - Ghi URL thật vào README/release notes ở Task 5.4.
+
+## Trạng thái hiện thực (cập nhật 2026-11-09, CV14)
+
+- **Trạng thái**: Chưa hiện thực (kế hoạch)
+- **Đã có**: CI (`.github/workflows/ci.yml`) cho PR vào `main`/`dev`; `GET /health` và `/health/ready` phục vụ health check; validate env fail-fast ở production.
+- **Chưa có**: workflow CD (`cd.yml`), đẩy image lên GHCR, Dockerfile production, dịch vụ Render (web/API/Postgres) và URL production. `docker-compose.yml` hiện chỉ dùng cho môi trường dev.
+- Quyết định nền tảng vẫn giữ nguyên; việc triển khai thuộc Task 4.4/5.3.

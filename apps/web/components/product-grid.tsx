@@ -21,6 +21,8 @@ export function ProductGrid() {
   const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ['products'],
     queryFn: api.getProducts,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   });
 
   if (isPending) {

@@ -97,6 +97,10 @@ export type Order = {
   totalAmount: number | string;
   status: string;
   createdAt: string;
+  paymentDeadline?: string | null;
+  cancelReason?: 'CUSTOMER' | 'STAFF' | 'SYSTEM_EXPIRED' | null;
+  cancelledAt?: string | null;
+  cancelledBy?: string | null;
   items?: OrderItem[];
 };
 
