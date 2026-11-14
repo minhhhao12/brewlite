@@ -8,7 +8,7 @@
  * - Persist localStorage & F5 rehydration
  */
 
-import type { CartItem, Product, ProductOption } from './types';
+import type { CartSelection, Product, ProductOption } from './types';
 
 // Giả lập localStorage cho môi trường kiểm thử
 const storageMap = new Map<string, string>();
@@ -49,7 +49,8 @@ async function runTests() {
   const {
     useCartStore,
     selectCartCount,
-    selectCartSubtotal,
+    calculateCartSubtotal,
+    resolveCartItems,
     MAX_ITEM_QUANTITY,
   } = await import('./cart-store');
 
@@ -108,6 +109,16 @@ async function runTests() {
     isAvailable: true,
   };
 
+  // The store persists IDs only; names/prices must be resolved from Product API data.
+  const products = [
+    { ...mockProductA, options: [sizeM, sizeL, toppingTranChau, toppingThachNhaDam] },
+    mockProductB,
+  ];
+  const resolveItems = (state: { items: CartSelection[] }) =>
+    resolveCartItems(state.items, products);
+  const selectCartSubtotal = (state: { items: CartSelection[] }) =>
+    calculateCartSubtotal(resolveItems(state));
+
   // 1. Giỏ hàng ban đầu phải rỗng
   useCartStore.getState().clear();
   assert(useCartStore.getState().items.length === 0, 'Giỏ hàng khởi tạo trống');
@@ -125,10 +136,10 @@ async function runTests() {
   useCartStore.getState().addItem(mockProductA, sizeM, [toppingTranChau], 2);
   let state = useCartStore.getState();
   assert(state.items.length === 1, 'Đã thêm 1 loại sản phẩm vào giỏ');
-  assert(state.items[0].productName === 'Cà phê Sữa Đá', 'Tên sản phẩm đúng');
+  assert(resolveItems(state)[0].productName === 'Cà phê Sữa Đá', 'Tên sản phẩm đúng');
   assert(state.items[0].quantity === 2, 'Số lượng đúng là 2');
   assert(
-    state.items[0].unitPrice === 48000,
+    resolveItems(state)[0].unitPrice === 48000,
     'Đơn giá tính đúng (35k + 5k + 8k = 48k)',
   );
   assert(
@@ -173,7 +184,7 @@ async function runTests() {
     'Tạo dòng sản phẩm mới khi tùy chọn size/topping khác',
   );
   assert(
-    state.items[1].unitPrice === 60000,
+    resolveItems(state)[1].unitPrice === 60000,
     'Đơn giá dòng thứ 2 đúng: 35k + 10k + 8k + 7k = 60k',
   );
   assert(
@@ -251,12 +262,12 @@ async function runTests() {
     'Dữ liệu giỏ hàng đã được lưu vào localStorage',
   );
   const parsedStorage = JSON.parse(savedStorage!) as {
-    state: { items: CartItem[] };
+    state: { items: CartSelection[] };
   };
   assert(parsedStorage.state.items.length === 1, 'localStorage chứa 1 item');
   assert(
-    parsedStorage.state.items[0].productName === 'Trà Đào Cam Sả',
-    'localStorage lưu đúng sản phẩm',
+    parsedStorage.state.items[0].productId === 'prod-2',
+    'localStorage lưu đúng ID sản phẩm, không lưu tên/giá cũ',
   );
 
   // 9. Giả lập F5 (tải lại trang / rehydrate từ localStorage)
@@ -269,36 +280,34 @@ async function runTests() {
 
   // Sau khi F5, kiểm tra dữ liệu đọc lại từ localStorage
   const rehydratedState = (
-    JSON.parse(rawJsonBefore!) as { state: { items: CartItem[] } }
+    JSON.parse(rawJsonBefore!) as { state: { items: CartSelection[] } }
   ).state;
+  const rehydratedItems = resolveItems(rehydratedState);
   assert(
     rehydratedState.items.length === 2,
     'Sau khi F5: localStorage phục hồi đủ 2 dòng món',
   );
   assert(
-    rehydratedState.items[0].productName === 'Trà Đào Cam Sả',
+    rehydratedItems[0].productName === 'Trà Đào Cam Sả',
     'Món 1 sau F5 giữ nguyên',
   );
   assert(
-    rehydratedState.items[1].productName === 'Cà phê Sữa Đá',
+    rehydratedItems[1].productName === 'Cà phê Sữa Đá',
     'Món 2 sau F5 giữ nguyên',
   );
   assert(
-    rehydratedState.items[1].size?.name === 'M',
+    rehydratedItems[1].size?.name === 'M',
     'Tùy chọn Size sau F5 giữ nguyên',
   );
   assert(
-    rehydratedState.items[1].toppings[0].name === 'Trân châu trắng',
+    rehydratedItems[1].toppings[0].name === 'Trân châu trắng',
     'Topping sau F5 giữ nguyên',
   );
   assert(
     rehydratedState.items[1].quantity === 2,
     'Số lượng sau F5 giữ nguyên',
   );
-  const rehydratedTotal = rehydratedState.items.reduce(
-    (sum: number, it: CartItem) => sum + it.unitPrice * it.quantity,
-    0,
-  );
+  const rehydratedTotal = selectCartSubtotal(rehydratedState);
   assert(
     rehydratedTotal === 45000 + 48000 * 2,
     'Tổng tiền tính từ dữ liệu phục hồi sau F5 khớp 100%',
@@ -313,7 +322,7 @@ async function runTests() {
 
   const emptyStorage = JSON.parse(
     mockLocalStorage.getItem('brewlite-cart')!,
-  ) as { state: { items: CartItem[] } };
+  ) as { state: { items: CartSelection[] } };
   assert(
     emptyStorage.state.items.length === 0,
     'localStorage cũng được xóa sạch',
@@ -326,4 +335,3 @@ runTests().catch((err) => {
   console.error('Test thất bại:', err);
   process.exit(1);
 });
-

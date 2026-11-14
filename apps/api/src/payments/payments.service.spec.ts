@@ -17,6 +17,7 @@ import { OrderStateMachine } from '../orders/domain/order-state-machine';
 import { OrdersService } from '../orders/orders.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaymentsService } from './payments.service';
+import { VnpayPaymentsService } from './vnpay/vnpay-payments.service';
 
 describe('PaymentsService + OrderStateMachine (FR-06, FR-08, FR-10)', () => {
   let service: PaymentsService;
@@ -96,6 +97,7 @@ describe('PaymentsService + OrderStateMachine (FR-06, FR-08, FR-10)', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PaymentsService,
+        { provide: VnpayPaymentsService, useValue: { create: jest.fn() } },
         { provide: PrismaService, useValue: prisma },
         { provide: LoyaltyService, useValue: mockLoyaltyService },
         { provide: OrdersService, useValue: mockOrdersService },

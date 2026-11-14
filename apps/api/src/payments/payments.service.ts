@@ -17,6 +17,7 @@ import { OrderStateMachine } from '../orders/domain/order-state-machine';
 import { OrdersService } from '../orders/orders.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePaymentDto } from './dto/create-payments.dto';
+import { VnpayPaymentsService } from './vnpay/vnpay-payments.service';
 
 /** Sau khi controller đã hợp nhất header/body, khóa idempotency luôn có mặt. */
 export type CreatePaymentInput = CreatePaymentDto & {
@@ -32,12 +33,16 @@ export class PaymentsService {
     private readonly config: ConfigService,
     private readonly loyaltyService: LoyaltyService,
     private readonly ordersService: OrdersService,
+    private readonly vnpayPayments: VnpayPaymentsService,
   ) {}
 
-  async create(userId: string, dto: CreatePaymentInput) {
+  async create(userId: string, dto: CreatePaymentInput, ipAddress = '127.0.0.1') {
     const provider = this.config.get<string>('PAYMENT_PROVIDER', 'mock');
     const nodeEnv = this.config.get<string>('NODE_ENV', 'development');
 
+    if (provider === 'vnpay') {
+      return this.vnpayPayments.create(userId, dto, ipAddress);
+    }
     if (provider !== 'mock') {
       throw new ServiceUnavailableException(
         'Payment provider hiện chưa được triển khai.',

@@ -107,14 +107,19 @@ export type Order = {
 export type PaymentMethod = 'WALLET' | 'CARD';
 
 export type Payment = {
-  id: string;
+  paymentId: string;
   orderId: string;
   userId: string;
   idempotencyKey: string;
   amount: number | string;
   method: PaymentMethod;
   status: 'INITIATED' | 'PAID' | 'FAILED';
-  transactionReference: string;
+  transactionReference: string | null;
+  provider?: 'mock' | 'vnpay';
+  paymentUrl?: string | null;
+  expiresAt?: string | null;
+  responseCode?: string | null;
+  refundRequired?: boolean;
   createdAt?: string;
 };
 
@@ -122,6 +127,14 @@ export type PaymentResponse = {
   payment: Payment;
   orderStatus: string;
   reused: boolean;
+  requiresRedirect?: boolean;
+  paymentUrl?: string | null;
 };
 
+export type PaymentOrderStatus = {
+  orderId: string;
+  orderCode: string;
+  orderStatus: string;
+  payment: Payment | null;
+};
 

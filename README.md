@@ -197,9 +197,16 @@ Không có file `.env` thì Docker Compose dùng giá trị mặc định dướ
 | `JWT_EXPIRES_IN` | `1h` | Thời hạn access token. |
 | `CORS_ORIGIN` | `http://localhost:3001,http://127.0.0.1:3001` | Danh sách origin được gọi API, phân tách bằng dấu phẩy. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` hoặc `error`. |
-| `PAYMENT_PROVIDER` | `mock` | Hiện chỉ hỗ trợ `mock`; giá trị khác trả `503` khi thanh toán. |
-| `ORDER_PAYMENT_TIMEOUT_SECONDS` | `900` | Đơn `PENDING`/`PAYMENT_FAILED` quá số giây này (tính từ `createdAt`) bị lazy expiry hủy với lý do `SYSTEM_EXPIRED`. Đặt `30` để demo nhanh. |
+| `PAYMENT_PROVIDER` | `mock` | `mock` hoặc `vnpay` (sandbox, Return URL, chưa có IPN). Xem [hướng dẫn VNPay](./docs/vnpay-sandbox.md). |
+| `ORDER_PAYMENT_TIMEOUT_SECONDS` | `900` | Đơn `PENDING`/`PAYMENT_FAILED` quá số giây này (tính từ `createdAt`) bị lazy expiry hủy với lý do `SYSTEM_EXPIRED`. |
 
+
+### VNPay Sandbox (Docker và pnpm)
+
+Xem [`docs/vnpay-sandbox.md`](./docs/vnpay-sandbox.md) để cấu hình merchant, chạy thử với thẻ NCB và kiểm tra kết quả.
+Không cần ngrok/IPN ở phạm vi demo hiện tại. Secret chỉ ở backend, không commit vào Git.
+Docker lấy các biến `PAYMENT_PROVIDER`, `VNPAY_*`, `WEB_BASE_URL` từ `.env` gốc.
+Chạy bằng pnpm có thể đặt cùng các biến trong `apps/api/.env`; file này ưu tiên hơn `.env` gốc.
 
 ### Web: `apps/web/.env.local` (chỉ khi chạy trên host)
 
@@ -254,13 +261,17 @@ docker compose exec db psql -U brewlite -d brewlite \
 | `GET` | `/orders/:id` 🔒 | Chi tiết đơn. Chỉ chủ đơn hoặc `STAFF` xem được, người khác nhận `403`. |
 | `POST` | `/orders/:id/cancel` 🔒 | Hủy đơn và hoàn tồn kho. Khách chỉ hủy được đơn `PENDING` hoặc `PAYMENT_FAILED`; đơn `PAID` chỉ `STAFF` hủy được. |
 | `PATCH` | `/orders/:id/status` 🔒 | Chỉ `STAFF`. Body: `{ "status": "PREPARING" }`. Chuyển không hợp lệ trả `400`. |
-| `POST` | `/payments` | Thanh toán mô phỏng, xem chi tiết bên dưới. |
+| `POST` | `/payments` 🔒 | Thanh toán mock hoặc khởi tạo URL VNPay, xem chi tiết bên dưới. |
+| `GET` | `/payments/config` | Trả provider đang bật, không trả secret. |
+| `GET` | `/payments/order/:orderId` 🔒 | Trạng thái đơn và payment mới nhất; chỉ chủ đơn xem được. |
+| `GET` | `/payments/vnpay/return` | VNPay chuyển trình duyệt về; backend xác thực chữ ký/số tiền, cập nhật và redirect về web. |
 
 ### Thanh toán `POST /payments`
 
 - Header bắt buộc: **`Idempotency-Key`** (chuỗi 1–64 ký tự, ví dụ UUID). Client cũ vẫn có thể gửi `idempotencyKey` trong body; nếu gửi cả hai thì phải trùng nhau, nếu không trả `400`.
 - Body: `orderId` (UUID), `method` (`WALLET` hoặc `CARD`), `simulateFailure` (tùy chọn, `true` để mô phỏng thanh toán lỗi; bị từ chối ở production).
 - Kết quả: `{ payment, orderStatus, reused }`. Thành công đưa đơn sang `PAID`, thất bại đã xác minh đưa đơn sang `PAYMENT_FAILED`.
+- Với `PAYMENT_PROVIDER=vnpay`: trả thêm `{ requiresRedirect, paymentUrl }`, payment ban đầu là `INITIATED`; frontend chuyển toàn trang sang VNPay. Không dùng `simulateFailure`. Kết quả chỉ được chốt khi Return URL hợp lệ quay về.
 - **Gửi lại cùng `Idempotency-Key` cho cùng đơn** trả lại kết quả đã lưu (`reused: true`), không tạo thanh toán thứ hai. Dùng khi mạng chập chờn hoặc khách bấm đúp.
 - Đơn `PAYMENT_FAILED` được thử lại bằng **khóa mới**. Đơn đã `PAID`, `PREPARING`, `READY`, `COMPLETED` hoặc `CANCELLED` trả `409`.
 

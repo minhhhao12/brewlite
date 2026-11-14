@@ -3,9 +3,21 @@ import type { PaymentMethod } from '@/lib/types';
 type PaymentMethodsProps = {
   method: PaymentMethod;
   onChange: (method: PaymentMethod) => void;
+  provider?: 'mock' | 'vnpay';
 };
 
-export function PaymentMethods({ method, onChange }: PaymentMethodsProps) {
+export function PaymentMethods({ method, onChange, provider = 'mock' }: PaymentMethodsProps) {
+  if (provider === 'vnpay') {
+    return (
+      <div className="mt-5 rounded-2xl border border-coffee-800 bg-coffee-50 p-4">
+        <p className="font-semibold text-coffee-900">VNPay Sandbox</p>
+        <p className="mt-1 text-sm text-coffee-600">
+          Chọn ngân hàng, thẻ hoặc QR trên trang VNPay. Không nhập thông tin thẻ hay OTP tại BrewLite.
+        </p>
+        <p className="mt-2 text-xs text-amber-800">Môi trường thử nghiệm, không sử dụng tiền/thẻ thật.</p>
+      </div>
+    );
+  }
   return (
     <div className="mt-5 space-y-3">
       <label

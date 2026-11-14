@@ -10,6 +10,8 @@
 
 > **Trạng thái hạ tầng**: production **chưa được tạo**. Các node Render/GHCR dưới đây là **kế hoạch triển khai** đã chốt về mặt kiến trúc; Task 5.3–5.4 sẽ tạo hạ tầng thật, chạy pipeline và cập nhật URL/trạng thái vào tài liệu này. Không có URL production giả được ghi vào repository.
 
+> **VNPay Sandbox local:** đã có chế độ Return-only, không IPN/ngrok; cấu hình Docker/pnpm và giới hạn xem [`vnpay-sandbox.md`](./vnpay-sandbox.md). Không dùng chế độ này để nhận tiền thật.
+
 ![Deployment diagram BrewLite](./diagrams/deployment.svg)
 
 ---

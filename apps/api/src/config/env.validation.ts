@@ -27,8 +27,47 @@ export function validateEnv(config: Record<string, unknown>): Record<string, unk
   const orderPaymentTimeoutSeconds = Number(
     readString(config.ORDER_PAYMENT_TIMEOUT_SECONDS) ?? 900,
   );
+  const vnpayPayUrl = readString(config.VNPAY_PAY_URL) ??
+    'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html';
+  const webBaseUrl = readString(config.WEB_BASE_URL) ?? 'http://localhost:3001';
 
   const errors: string[] = [];
+  if (!['mock', 'vnpay'].includes(paymentProvider)) {
+    errors.push('PAYMENT_PROVIDER phải là mock hoặc vnpay.');
+  }
+
+  if (paymentProvider === 'vnpay') {
+    for (const key of ['VNPAY_TMN_CODE', 'VNPAY_HASH_SECRET', 'VNPAY_RETURN_URL']) {
+      const value = readString(config[key]);
+      if (!value || /[<>]/.test(value)) errors.push(`${key} là bắt buộc khi dùng VNPay (không dùng giá trị mẫu).`);
+    }
+    if (!/^[a-zA-Z0-9]{8}$/.test(readString(config.VNPAY_TMN_CODE) ?? '')) {
+      errors.push('VNPAY_TMN_CODE phải gồm 8 ký tự chữ/số.');
+    }
+    for (const [key, value] of [
+      ['VNPAY_RETURN_URL', readString(config.VNPAY_RETURN_URL)],
+      ['WEB_BASE_URL', webBaseUrl],
+    ]) {
+      try {
+        const url = new URL(value ?? '');
+        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+          throw new Error();
+        }
+      } catch {
+        errors.push(`${key} phải là URL HTTP(S) hợp lệ, không chứa thông tin đăng nhập/query/hash.`);
+      }
+    }
+    try {
+      const url = new URL(vnpayPayUrl);
+      if (
+        url.protocol !== 'https:' || url.hostname !== 'sandbox.vnpayment.vn' ||
+        url.pathname !== '/paymentv2/vpcpay.html' || url.port ||
+        url.username || url.password || url.search || url.hash
+      ) throw new Error();
+    } catch {
+      errors.push('VNPAY_PAY_URL phải trỏ tới cổng VNPay Sandbox HTTPS.');
+    }
+  }
 
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     errors.push('PORT phải là số nguyên trong khoảng 1..65535.');
@@ -76,6 +115,11 @@ export function validateEnv(config: Record<string, unknown>): Record<string, unk
     CORS_ORIGIN: corsOrigin,
     LOG_LEVEL: logLevel,
     PAYMENT_PROVIDER: paymentProvider,
+    VNPAY_TMN_CODE: readString(config.VNPAY_TMN_CODE),
+    VNPAY_HASH_SECRET: readString(config.VNPAY_HASH_SECRET),
+    VNPAY_RETURN_URL: readString(config.VNPAY_RETURN_URL),
+    VNPAY_PAY_URL: vnpayPayUrl,
+    WEB_BASE_URL: webBaseUrl,
     ORDER_PAYMENT_TIMEOUT_SECONDS: orderPaymentTimeoutSeconds,
   };
 }
