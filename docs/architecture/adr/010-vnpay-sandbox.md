@@ -4,6 +4,8 @@
 - **Ngày**: 2026-11-09
 - **Liên quan**: FR-06, FR-08, FR-10, NFR-05, RSK-02, RSK-03, ADR-005
 
+> **Cập nhật hiện thực 2026-11-14:** Theo phạm vi demo đã chốt, đã thêm **VNPay Sandbox Return-only**, giữ mock, chưa triển khai IPN/tunnel/querydr/refund API. Xem [hướng dẫn hiện hành](../../vnpay-sandbox.md). Các phần Return + IPN bên dưới vẫn là thiết kế mở rộng, không phải mô tả toàn bộ code đang chạy. `PaymentsController` hiện đã có JWT guard và kiểm tra quyền sở hữu đơn; Return đặt ở controller public riêng, xác thực bằng chữ ký. Schema dùng `INITIATED/PAID/FAILED` hiện có, thêm `expiresAt` và `refundRequired`, chưa thêm enum `EXPIRED/CANCELLED` cho Payment.
+
 ## Bối cảnh
 
 Hiện tại BrewLite thanh toán bằng mock ngay trong `PaymentsService`:

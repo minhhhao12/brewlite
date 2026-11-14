@@ -205,6 +205,15 @@ model Payment {
   method               PaymentMethod
   status               PaymentStatus @default(INITIATED)
   transactionReference String?       @db.VarChar(128)
+  provider             String        @default("mock") @db.VarChar(20)
+  providerTxnRef       String?       @unique @db.VarChar(64)
+  paymentUrl           String?       @db.Text
+  expiresAt            DateTime?
+  responseCode         String?       @db.VarChar(10)
+  transactionStatus    String?       @db.VarChar(10)
+  bankCode             String?       @db.VarChar(20)
+  payDate              DateTime?
+  refundRequired       Boolean       @default(false)
   createdAt            DateTime      @default(now())
 
   user  User  @relation(fields: [userId], references: [userId], onDelete: Restrict)

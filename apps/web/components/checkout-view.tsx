@@ -13,7 +13,13 @@ import {
   useCartHydrated,
   useCartStore,
 } from '@/lib/cart-store';
-import { createIdempotencyKey, isPaymentPaid } from '@/lib/payment';
+import {
+  clearVnpayAttempt,
+  createIdempotencyKey,
+  isPaymentPaid,
+  readVnpayAttempt,
+  saveVnpayAttempt,
+} from '@/lib/payment';
 import type { CartItem, PaymentMethod, Product } from '@/lib/types';
 import { CardFormPanel, validateCard, type CardErrors } from './checkout/card-form-panel';
 import { OrderSummary } from './checkout/order-summary';
@@ -215,17 +221,63 @@ export function CheckoutView() {
   const [formError, setFormError] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [simulateFailure, setSimulateFailure] = useState(false);
+  const [provider, setProvider] = useState<'mock' | 'vnpay' | null>(null);
+  const [configError, setConfigError] = useState<string | null>(null);
+  const [isRestoringPayment, setIsRestoringPayment] = useState(true);
+  const [restoreError, setRestoreError] = useState(false);
 
   const discountAmount = appliedPromo?.discountAmount ?? 0;
   const finalTotal = Math.max(0, subtotal - discountAmount);
 
   const submitHint =
-    method === 'WALLET' && !walletVerified
+    provider === 'mock' && method === 'WALLET' && !walletVerified
       ? 'Bấm "Kiểm tra giao dịch" sau khi quét mã QR để mở khóa nút thanh toán.'
       : undefined;
 
   const hasProductValidationError =
     isLoadingProducts || products === null || Boolean(productError) || hasInvalidItems;
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getPaymentConfig().then((config) => {
+      if (!['mock', 'vnpay'].includes(config.provider)) throw new Error('Cổng thanh toán không được hỗ trợ.');
+      if (!cancelled) setProvider(config.provider);
+    }).catch(() => {
+      if (!cancelled) setConfigError('Không thể tải cấu hình thanh toán. Vui lòng tải lại trang.');
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!authHydrated || !user || !provider) return;
+    if (provider !== 'vnpay') {
+      setIsRestoringPayment(false);
+      return;
+    }
+    const attempt = readVnpayAttempt(user.id);
+    if (!attempt) {
+      setIsRestoringPayment(false);
+      return;
+    }
+    let cancelled = false;
+    api.getPaymentStatus(attempt.order.id).then((status) => {
+      if (cancelled) return;
+      if (status.orderStatus === 'PENDING' || status.orderStatus === 'PAYMENT_FAILED') {
+        setPendingOrder(attempt.order);
+      } else {
+        if (status.orderStatus === 'CANCELLED') clearVnpayAttempt();
+        router.replace(`/checkout/result?orderId=${encodeURIComponent(attempt.order.id)}`);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setRestoreError(true);
+        setFormError('Không thể khôi phục giao dịch đang chờ. Vui lòng tải lại trang, không tạo đơn thanh toán thứ hai.');
+      }
+    }).finally(() => {
+      if (!cancelled) setIsRestoringPayment(false);
+    });
+    return () => { cancelled = true; };
+  }, [authHydrated, user, provider, router]);
 
   useEffect(() => {
     if (!cartHydrated) return;
@@ -336,7 +388,7 @@ export function CheckoutView() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (isSubmitting) return;
+    if (isSubmitting || !provider || isRestoringPayment || restoreError) return;
 
     // Chỉ kiểm tra Product API khi cần tạo đơn mới.
     // Nếu đã có pendingOrder, tiếp tục thanh toán đơn hiện tại.
@@ -364,12 +416,12 @@ export function CheckoutView() {
       }
     }
 
-    if (method === 'WALLET' && !walletVerified) {
+    if (provider === 'mock' && method === 'WALLET' && !walletVerified) {
       setFormError('Vui lòng bấm "Kiểm tra giao dịch" sau khi quét mã QR.');
       return;
     }
 
-    if (method === 'CARD') {
+    if (provider === 'mock' && method === 'CARD') {
       const errors = validateCard(cardInfo);
       setCardErrors(errors);
 
@@ -406,14 +458,38 @@ export function CheckoutView() {
         setPendingOrder(activeOrder);
       }
 
+      let idempotencyKey = createIdempotencyKey();
+      if (provider === 'vnpay' && user) {
+        const previous = readVnpayAttempt(user.id);
+        if (previous?.order.id === activeOrder.id) idempotencyKey = previous.key;
+        saveVnpayAttempt({
+          userId: user.id, order: activeOrder, key: idempotencyKey,
+          cartSnapshot: previous?.order.id === activeOrder.id
+            ? previous.cartSnapshot : JSON.stringify(selections),
+        });
+        const status = await api.getPaymentStatus(activeOrder.id);
+        if (status.payment || status.orderStatus !== 'PENDING') {
+          router.push(`/checkout/result?orderId=${encodeURIComponent(activeOrder.id)}`);
+          return;
+        }
+      }
       const paymentResponse = await api.createPayment(
         {
           orderId: activeOrder.id,
-          method,
-          simulateFailure,
+          method: provider === 'vnpay' ? 'CARD' : method,
+          simulateFailure: provider === 'mock' ? simulateFailure : undefined,
         },
-        createIdempotencyKey(),
+        idempotencyKey,
       );
+
+      if (provider === 'vnpay') {
+        if (paymentResponse.requiresRedirect && paymentResponse.paymentUrl) {
+          window.location.assign(paymentResponse.paymentUrl);
+        } else {
+          router.push(`/checkout/result?orderId=${encodeURIComponent(activeOrder.id)}`);
+        }
+        return;
+      }
 
       const amount = Number(paymentResponse.payment.amount);
 
@@ -485,6 +561,7 @@ export function CheckoutView() {
     }
 
     refreshProductStock();
+    if (provider === 'vnpay') clearVnpayAttempt();
     return pendingOrder.code;
   };
 
@@ -545,7 +622,7 @@ export function CheckoutView() {
     setPromoError(null);
   };
 
-  if (!authHydrated || !cartHydrated) {
+  if (!authHydrated || !cartHydrated || (!configError && (!provider || isRestoringPayment))) {
     return <CheckoutSkeleton />;
   }
 
@@ -658,7 +735,7 @@ export function CheckoutView() {
         </div>
       )}
 
-      {formError && (
+      {(formError || configError) && (
         <div
           role="alert"
           className="mb-8 rounded-3xl border border-rose-200 bg-rose-50/90 p-5 shadow-sm"
@@ -667,7 +744,7 @@ export function CheckoutView() {
             Không thể hoàn tất
           </h2>
           <p className="mt-1 text-sm leading-relaxed text-rose-700">
-            {formError}
+            {formError || configError}
           </p>
         </div>
       )}
@@ -725,9 +802,9 @@ export function CheckoutView() {
               Chọn phương thức bạn muốn sử dụng để hoàn tất đơn hàng.
             </p>
 
-            <PaymentMethods method={method} onChange={handleMethodChange} />
+            {provider && <PaymentMethods provider={provider} method={method} onChange={handleMethodChange} />}
 
-            {method === 'WALLET' && (
+            {provider === 'mock' && method === 'WALLET' && (
               <WalletQrPanel
                 amount={finalTotal}
                 orderCode={pendingOrder?.code}
@@ -736,7 +813,7 @@ export function CheckoutView() {
               />
             )}
 
-            {method === 'CARD' && (
+            {provider === 'mock' && method === 'CARD' && (
               <CardFormPanel
                 value={cardInfo}
                 errors={cardErrors}
@@ -744,7 +821,7 @@ export function CheckoutView() {
               />
             )}
 
-            <div className="mt-6 rounded-2xl border border-dashed border-coffee-200 bg-cream/40 p-4">
+            {provider === 'mock' && <div className="mt-6 rounded-2xl border border-dashed border-coffee-200 bg-cream/40 p-4">
               <label className="flex cursor-pointer items-center justify-between gap-3">
                 <div>
                   <span className="text-xs font-semibold text-coffee-800">
@@ -761,7 +838,7 @@ export function CheckoutView() {
                   className="h-4 w-4 rounded text-coffee-800 focus:ring-coffee-700"
                 />
               </label>
-            </div>
+            </div>}
           </section>
         </div>
 
@@ -776,8 +853,9 @@ export function CheckoutView() {
           isValidatingPromo={isValidatingPromo}
           isSubmitting={isSubmitting}
           isSubmitDisabled={
+            !provider || isRestoringPayment || restoreError || Boolean(configError) ||
             (!pendingOrder && hasProductValidationError) ||
-            (method === 'WALLET' && !walletVerified)
+            (provider === 'mock' && method === 'WALLET' && !walletVerified)
           }
           submitHint={submitHint}
           isOrderCreated={Boolean(pendingOrder)}

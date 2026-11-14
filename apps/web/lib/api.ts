@@ -5,6 +5,7 @@ import type {
   Order,
   PaymentMethod,
   PaymentResponse,
+  PaymentOrderStatus,
   Product,
   ProductOption,
   User,
@@ -202,6 +203,12 @@ export const api = {
     }),
 
   // Payments
+  getPaymentConfig: (): Promise<{ provider: 'mock' | 'vnpay' }> =>
+    request('/payments/config'),
+
+  getPaymentStatus: (orderId: string): Promise<PaymentOrderStatus> =>
+    request(`/payments/order/${encodeURIComponent(orderId)}`),
+
   createPayment: (
     payload: {
       orderId: string;

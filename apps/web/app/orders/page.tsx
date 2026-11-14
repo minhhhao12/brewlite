@@ -309,10 +309,11 @@ export default function OrdersPage() {
                 </div>
 
                 <Link
-                  href="/"
+                  href={['PENDING', 'PAYMENT_FAILED'].includes(order.status)
+                    ? `/checkout/result?orderId=${encodeURIComponent(order.id)}` : '/'}
                   className="inline-flex w-fit items-center justify-center rounded-full border border-coffee-300 px-5 py-2.5 text-sm font-semibold text-coffee-800 transition hover:bg-coffee-50"
                 >
-                  Đặt thêm món
+                  {['PENDING', 'PAYMENT_FAILED'].includes(order.status) ? 'Xem thanh toán' : 'Đặt thêm món'}
                 </Link>
               </div>
             </article>
